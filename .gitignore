@@ -1,0 +1,8 @@
+./vicuna-jittor-weights/*
+./medusa_checkpoints/*
+./logs/*
+./wandb/*
+*.tar.gz
+__pycache__/*
+*.pyc
+*.jtr
