@@ -1,5 +1,10 @@
-# python weight_convert.py     --model_path ../Medusa/vicuna-7b-v1.3     --save_path ./vicuna-jittor-weights/vicuna-7b-v1.3.jtr
+# python weight_convert.py --model_path ../Medusa/vicuna-7b-v1.3  --save_path ./vicuna-jittor-weights/vicuna-7b-v1.3_f16.pkl
 
+
+import numpy as np
+
+# 定义精度类型：
+FLOAT_TYPE = "float16" # optional: "float32" | "float16"
 
 # --- 步骤 1: 导入库 ---
 print("[DEBUG] Script started.")
@@ -76,6 +81,8 @@ def convert(model_path, save_path):
     jittor_state_dict = {}
     for key, tensor in final_state_dict.items():
         np_arr = tensor.cpu().float().numpy()
+        if FLOAT_TYPE:
+            np_arr = np_arr.astype(np.float16)
         jittor_state_dict[key] = np_arr
     print("[DEBUG] Conversion to NumPy arrays successful.")
 

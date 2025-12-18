@@ -1,8 +1,82 @@
+# 模型权重和检查点
 ./vicuna-jittor-weights/*
-./medusa_checkpoints/*
-./logs/*
-./wandb/*
-*.tar.gz
-__pycache__/*
-*.pyc
+./medusa_checkpoints*/
+*.pkl
+*.pt
+*.pth
+*.safetensors
+*.bin
 *.jtr
+*.ckpt
+*.h5
+
+# 数据集和缓存
+processed_*_dataset_cache/
+*.arrow
+*.parquet
+*.cache
+rank0_data_done.flag
+
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 日志和输出
+logs/
+*.log
+wandb/
+tensorboard/
+runs/
+
+# 压缩文件
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# 系统文件
+Thumbs.db
+.DS_Store

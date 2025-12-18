@@ -1,21 +1,25 @@
 import jittor as jt
 from jittor import nn, optim
+# 注意这里根据你的实际文件名修改 import
 from medusa.model.modeling_medusa import MedusaConfig, MedusaModel
 from medusa.model.modeling_llama import LlamaForCausalLM, LlamaConfig
 import numpy as np
+import time
 
-# 模拟数据集
-class DummyDataset(jt.dataset.Dataset):
+# [修改 1] 过拟合数据集：每次返回固定的序列
+class OverfitDataset(jt.dataset.Dataset):
     def __init__(self, vocab_size, seq_len, length=100):
         super().__init__()
         self.vocab_size = vocab_size
         self.seq_len = seq_len
         self.length = length
+        # 固定一个 pattern，例如 [0, 1, 2, 3, ...]
+        self.fixed_data = np.arange(seq_len) % vocab_size
+        self.fixed_data = self.fixed_data.astype(np.int64)
         
     def __getitem__(self, i):
-        # 随机生成数据
-        x = np.random.randint(0, self.vocab_size, (self.seq_len,)).astype(np.int64)
-        return x # input_ids
+        # 无论 index 是多少，都返回同样的数据
+        return self.fixed_data
         
     def __len__(self):
         return self.length
@@ -23,11 +27,11 @@ class DummyDataset(jt.dataset.Dataset):
 def train_step():
     jt.flags.use_cuda = 1
     
-    # 1. 配置与模型
+    # 配置
     vocab_size = 1000
     hidden_size = 64
     heads = 4
-    medusa_heads = 3 # 预测未来 3 个 token
+    medusa_heads = 3
     
     llama_config = LlamaConfig(
         vocab_size=vocab_size, hidden_size=hidden_size, 
@@ -41,81 +45,68 @@ def train_step():
     
     print("Building Model...")
     base_model = LlamaForCausalLM(llama_config)
-    # [关键] 冻结 Base Model 参数 (Stage 1 Training)
+    # 冻结 Base
     for p in base_model.parameters():
         p.stop_grad()
         
     model = MedusaModel(medusa_config, base_model=base_model)
-    model.train() # 切换到训练模式
+    model.train()
     
-    # 2. 优化器 (只优化 Medusa Heads)
-    # 过滤出 requires_grad 的参数 (Jittor 中默认都求导，除非 stop_grad)
-    # 但我们上面已经对 base_model 做了 stop_grad
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    # 优化器
+    optimizer = optim.AdamW(model.parameters(), lr=1e-2) # [修改 2] 加大一点 LR 方便观察下降
     
-    # 3. 数据集
-    dataloader = DummyDataset(vocab_size, seq_len=20).set_attrs(batch_size=4, shuffle=True)
+    # [修改 3] 使用 OverfitDataset
+    dataloader = OverfitDataset(vocab_size, seq_len=20, length=200).set_attrs(batch_size=16, shuffle=True)
     
-    # 4. Loss 参数
-    medusa_decay = 0.8 # 越远的头权重越小
+    medusa_decay = 0.8
     
-    print("Start Training Loop...")
-    for epoch in range(2):
+    print("Start Overfitting Test...")
+    start_time = time.time()
+    
+    for epoch in range(5): # 跑 5 个 epoch
+        total_epoch_loss = 0
+        steps = 0
         for batch_idx, input_ids in enumerate(dataloader):
             # input_ids: [Batch, Seq]
             
-            # Forward Pass
-            # medusa_forward=True, 且不需要 output_orig (训练时只算 Head Loss)
-            # 输出形状: [Medusa_Heads, Batch, Seq, Vocab]
             medusa_logits = model.execute(
                 input_ids=input_ids,
                 medusa_forward=True,
                 output_orig=False 
             )
             
-            # 计算 Loss
-            # Target 构造:
-            # Head k (k=0...N-1) 预测的是 input_ids[t + k + 1]
-            
             total_loss = jt.zeros(1)
             
             for k in range(medusa_heads):
-                # 获取第 k 个头的 logits: [Batch, Seq, Vocab]
                 head_logits = medusa_logits[k]
-                
-                # 对应的 Target
-                # 预测位置: input_ids 的第 k+1 个位置开始
-                # Logits 有效部分: 0 到 Seq-(k+1)
-                # Labels 有效部分: k+1 到 Seq
-                
-                # 举例: Seq=10, k=0 (预测下一词)
-                # Logits: predict at t=0...8
-                # Labels: real token at t=1...9
-                
                 offset = k + 1
-                if offset >= input_ids.shape[1]:
-                    break
+                if offset >= input_ids.shape[1]: break
                     
-                # 切片
-                pred = head_logits[:, :-offset, :] # [Batch, Seq-Offset, Vocab]
-                target = input_ids[:, offset:]     # [Batch, Seq-Offset]
+                pred = head_logits[:, :-offset, :]
+                target = input_ids[:, offset:]
                 
-                # Flatten
                 pred = pred.reshape(-1, vocab_size)
                 target = target.reshape(-1)
                 
-                # Cross Entropy
                 loss_k = nn.cross_entropy_loss(pred, target)
-                
-                # 加权累加
                 weight = medusa_decay ** k
                 total_loss += loss_k * weight
             
-            # Backward
             optimizer.step(total_loss)
             
-            if batch_idx % 10 == 0:
-                print(f"Epoch {epoch} Step {batch_idx} Loss: {total_loss.item():.4f}")
+            total_epoch_loss += total_loss.item()
+            steps += 1
+            
+        avg_loss = total_epoch_loss / steps
+        print(f"Epoch {epoch} Avg Loss: {avg_loss:.4f}")
+
+    print(f"Training finished in {time.time() - start_time:.2f}s")
+    
+    # 验证：Loss 应该大幅下降
+    if avg_loss < 1.0:
+        print("SUCCESS: Model successfully overfitted (Loss < 1.0). Training logic is correct!")
+    else:
+        print("WARNING: Loss did not drop significantly. Check optimizer or gradient.")
 
 if __name__ == "__main__":
     train_step()

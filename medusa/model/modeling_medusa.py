@@ -178,7 +178,22 @@ class MedusaModel(nn.Module):
         # 最后一个元素 ([-1]) 是经过了 LlamaRMSNorm 后的最终隐状态，正是 Medusa Head 的输入
         last_hidden_state = base_outputs.hidden_states[-1]
 
-        hs = last_hidden_state.clone()
+        hs = last_hidden_state.clone().float32()
+
+        # 2. [关键] Sync: 强制 Jittor 立即执行 Base Model 的计算
+        # 这会将惰性的计算图实体化为真实数据
+        hs.sync()
+        
+        # 3. [关键] Stop Grad & Clone: 彻底切断与 Base Model 计算图的联系
+        # 此时 hs 变成了一个纯粹的数据节点，没有任何历史包袱
+        hs = hs.stop_grad().clone()
+        
+        # 4. [关键] 删除引用并强制 GC:
+        # 手动删除 base_outputs，告诉 Jittor "Base Model 的中间结果我不要了"
+        del base_outputs
+        del last_hidden_state
+        # 强制触发 Jittor 的垃圾回收，立即释放 Base Model 前向传播产生的临时显存
+        jt.gc()
 
         medusa_logits = []
         for i in range(self.medusa_num_heads):
@@ -189,8 +204,9 @@ class MedusaModel(nn.Module):
 
         if output_orig:
             # LlamaForCausalLM 已经计算了 logits，直接复用
-            orig_logits = base_outputs.logits
-            return medusa_logits_stack, base_outputs, orig_logits
+            # orig_logits = base_outputs.logits
+            # return medusa_logits_stack, base_outputs, orig_logits
+            raise NotImplementedError("Training with output_orig=True requires modification to memory optimization logic.")
             
         return medusa_logits_stack
 
