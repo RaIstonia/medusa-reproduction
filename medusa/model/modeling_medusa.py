@@ -232,14 +232,9 @@ class MedusaModel(nn.Module):
         fast = True,
         tokenizer = None
     ):
-        """
-        Medusa 核心生成循环 (Jittor 版)
-        """
         assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
         
-        # 0. 准备 Medusa Buffers
         if medusa_choices is None:
-            # 默认使用 7B 模型的树结构
             medusa_choices = DEFAULT_MEDUSA_CHOICES
 
         if hasattr(self, "medusa_choices") and self.medusa_choices == medusa_choices:
@@ -249,18 +244,14 @@ class MedusaModel(nn.Module):
             self.medusa_buffers = medusa_buffers
             self.medusa_choices = medusa_choices
 
-        # 1. 初始化 KV Cache
         (
             past_key_values,
             past_key_values_data,
             current_length_data,
         ) = initialize_past_key_values(self.base_model)
         
-        # 2. 重置状态
         reset_medusa_mode(self)
 
-        # 3. Prefill (Initialize Medusa)
-        # 输入 Prompt，计算出第一个 Token 的 logits 和 Medusa Heads 的 logits
         medusa_logits, logits = initialize_medusa(
             input_ids, self, medusa_buffers["medusa_attn_mask"], past_key_values
         )
@@ -268,9 +259,8 @@ class MedusaModel(nn.Module):
         new_token = 0
         input_len = input_ids.shape[1]
 
-        # 4. 生成循环
         for idx in range(max_steps):
-            # (A) 生成候选 (Generate Candidates)
+            # (A) Generate Candidates
             candidates, tree_candidates = generate_candidates(
                 medusa_logits,
                 logits,
@@ -284,8 +274,7 @@ class MedusaModel(nn.Module):
                 fast=fast,
             )
 
-            # (B) 树形解码 (Tree Decoding)
-            # 使用 Tree Attention Mask 并行验证候选
+            # (B) Tree Decoding
             medusa_logits, logits, outputs = tree_decoding(
                 self,
                 tree_candidates,
@@ -295,14 +284,12 @@ class MedusaModel(nn.Module):
                 medusa_buffers["retrieve_indices"],
             )
 
-            # (C) 后验验证 (Evaluate Posterior)
-            # 决定哪一条路径是被接受的
+            # (C) Evaluate Posterior
             best_candidate, accept_length = evaluate_posterior(
                 logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast
             )
 
-            # (D) 更新状态 (Update Inputs & Cache)
-            # 将接受的 token 加入 input_ids，更新 KV Cache 指针
+            # (D) Update
             input_ids, logits, medusa_logits, new_token = update_inference_inputs(
                 input_ids,
                 candidates,
@@ -317,19 +304,28 @@ class MedusaModel(nn.Module):
                 current_length_data,
             )
 
-            # 这里的 yield 用于流式输出，Jittor 中需要注意数据的同步
-            # 我们先转为 list 或 numpy 来 decode
+            # 测试脚本需要: step, accept_length, 和 ids
+            # 获取所有新生成的 ids (转为 list)
+            curr_ids = input_ids[0, input_len:].numpy().tolist()
+            
             if tokenizer is not None:
-                # 获取新生成的 tokens
-                curr_ids = input_ids[0, input_len:].numpy().tolist()
-                text = tokenizer.decode(
-                    curr_ids,
-                    skip_special_tokens=True
-                )
-                yield {"text": text, "ids": curr_ids}
+                text = tokenizer.decode(curr_ids, skip_special_tokens=True)
+                
+                # yield 一个包含丰富信息的字典
+                yield {
+                    "text": text,
+                    "ids": curr_ids,          # 测试脚本需要统计 len(ids)
+                    "accept_length": accept_length, # 用于统计加速效率
+                    "step": idx               # 当前步数 (idxs)
+                }
                 
                 # Check EOS
                 if tokenizer.eos_token_id in curr_ids:
                     break
             else:
-                yield {"ids": input_ids}
+                # 即使没有 tokenizer，也返回结构化数据
+                yield {
+                    "ids": curr_ids,
+                    "accept_length": accept_length,
+                    "step": idx
+                }
