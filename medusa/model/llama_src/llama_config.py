@@ -61,6 +61,7 @@ class LlamaConfig:
         self.output_attentions = output_attentions
         self.output_hidden_states = output_hidden_states
         self.return_dict = return_dict
+        self.use_return_dict = return_dict  # Alias for HuggingFace compatibility
         
         # 处理额外参数，防止报错
         for k, v in kwargs.items():

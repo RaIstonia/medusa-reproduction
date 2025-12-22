@@ -147,8 +147,8 @@ def reset_past_key_values(passed_key_values):
     """
     for i in range(len(passed_key_values)):
         for j in range(2):
-            # Jittor assign/fill
-            passed_key_values[i][j].current_length.assign(0)
+            # 使用正确的方式更新长度
+            passed_key_values[i][j]._set_current_length(0)
     return passed_key_values
 
 # --- Sampling Utils ---
@@ -228,25 +228,53 @@ def get_typical_one_token(logit, temperature, posterior_threshold, posterior_alp
 
 def generate_candidates(medusa_logits, logits, tree_indices, retrieve_indices, 
                         temperature=0, posterior_threshold=0.3, posterior_alpha=0.09, 
-                        top_p=0.8, sampling='typical', fast=False):
+                        top_p=0.8, sampling='typical', fast=False,
+                        suppress_special_tokens=True):
+    """
+    Generate candidates based on provided logits and indices.
+    
+    Args:
+        suppress_special_tokens: If True, suppress BOS/EOS tokens from being selected.
+                                This helps avoid model quirks where special tokens get high probability.
+    """
+    # === [重要修复] 抑制特殊 token ===
+    # Base model 有时会给 BOS token (<s>) 很高的概率，导致生成跑偏
+    # 参考：PyTorch transformers 的 LogitsProcessor
+    if suppress_special_tokens:
+        # Clone logits to avoid modifying original
+        base_logits = logits[:, -1].clone()
+        medusa_logits_last = medusa_logits[:, 0, -1].clone()
+        
+        # Suppress BOS token (usually token 1) and EOS token (usually token 2)
+        # Also suppress PAD token (usually token 0) if any
+        special_tokens = [0, 1, 2]  # <unk>, <s>, </s>
+        neg_inf = jt.float32(-1e9)  # Use large negative instead of -inf for numerical stability
+        
+        for tok_id in special_tokens:
+            base_logits[:, tok_id] = neg_inf
+            medusa_logits_last[:, tok_id] = neg_inf
+    else:
+        base_logits = logits[:, -1]
+        medusa_logits_last = medusa_logits[:, 0, -1]
+    
     # 1. Base Model Candidate
     if temperature == 0 or fast:
         # [MODIFIED] Use topk instead of argmax
-        _, top_indices = jt.topk(logits[:, -1], k=1, dim=-1) # [Batch, 1]
+        _, top_indices = jt.topk(base_logits, k=1, dim=-1) # [Batch, 1]
         
         # [FIX] 之前这里多了一个 .unsqueeze(0)，导致变成了二维 [1, 1]
         # 我们只需要把它展平为一维 [Batch] (对于 Batch=1 就是 [1])
         candidates_logit = top_indices.view(-1) 
     else:
         if sampling == 'typical':
-            candidates_logit = get_typical_one_token(logits[:, -1], temperature, posterior_threshold, posterior_alpha).squeeze(0)
+            candidates_logit = get_typical_one_token(base_logits, temperature, posterior_threshold, posterior_alpha).squeeze(0)
         elif sampling == 'nucleus':
-            candidates_logit = get_nucleus_one_token(logits[:, -1], temperature, top_p).squeeze(0)
+            candidates_logit = get_nucleus_one_token(base_logits, temperature, top_p).squeeze(0)
         else:
             raise NotImplementedError
             
     # 2. Medusa TopK Candidates
-    topk_vals, topk_indices = jt.topk(medusa_logits[:, 0, -1], TOPK, dim=-1)
+    topk_vals, topk_indices = jt.topk(medusa_logits_last, TOPK, dim=-1)
     candidates_medusa_logits = topk_indices # [Heads, TopK]
 
     # 3. Combine (现在两个都是一维向量了，可以 concat)
@@ -280,6 +308,10 @@ def tree_decoding(
     """
     position_ids = medusa_position_ids + input_ids.shape[1]
 
+    # 使用 Jittor 原生操作进行边界检查（避免 .numpy() 的同步开销）
+    vocab_size = model.config.vocab_size if hasattr(model, 'config') and hasattr(model.config, 'vocab_size') else 32000
+    tree_candidates = jt.clamp(tree_candidates, 0, vocab_size - 1)
+    
     tree_medusa_logits, outputs, tree_logits = model(
         input_ids=tree_candidates, # 注意参数名，这里传给 model.execute
         output_orig=True,
@@ -331,12 +363,13 @@ def evaluate_posterior(
         #     print("!!! WARNING: NaN or Inf detected in tensor !!!")
 
         
-        accept_length = candidates_accept_length.max().item()
+        accept_length = int(candidates_accept_length.max().item())
         
         if accept_length == 0:
             best_candidate = jt.array(0).int64()
         else:
-            best_candidate = jt.topk(candidates_accept_length).int64() # argmax here should be fine on 1D var
+            # best_candidate = jt.topk(candidates_accept_length).int64() # argmax here should be fine on 1D var
+            best_candidate = jt.argmax(candidates_accept_length, dim=0)[0]
             
         return best_candidate, accept_length
 
@@ -374,8 +407,9 @@ def update_inference_inputs(
     select_indices = retrieve_indices[bc_idx, :al_val + 1] + prev_input_len
     
     # 2. Append tokens to input_ids
-    # input_ids = cat([input_ids, candidates[None, bc, :al+1]])
-    new_tokens = candidates[None, bc_idx, :al_val + 1]
+    # candidates shape: [Num_Cands, Max_Len]
+    # We need to select candidates[bc_idx, :al_val+1] and add batch dim
+    new_tokens = candidates[bc_idx:bc_idx+1, :al_val + 1]  # [1, al_val+1]
     input_ids = jt.concat([input_ids, new_tokens], dim=-1)
     
     # 3. Update KV Cache (The trickiest part)
@@ -405,15 +439,19 @@ def update_inference_inputs(
     past_key_values_data[tuple(slices)] = tgt
     
     # 4. Update Lengths
-    # current_length_data.fill_(...)
-    current_length_data.assign(prev_input_len + tgt.shape[-2])
+    # 注意：Jittor 中 assign() 对整个数组可能不work，需要逐元素更新
+    new_length = prev_input_len + tgt.shape[-2]
+    for idx in range(current_length_data.shape[0]):
+        current_length_data[idx] = new_length
     
     # 5. Update Logits (Return logits for the next step)
-    # logits = logits[None, bc, al : al+1]
-    # medusa_logits = medusa_logits[:, None, bc, al : al+1]
+    # logits shape: [Num_Cands, Max_Len, Vocab]
+    # We need logits[bc_idx, al_val:al_val+1, :] -> [1, Vocab] -> [1, 1, Vocab]
+    # medusa_logits shape: [Heads, Num_Cands, Max_Len, Vocab]
+    # We need medusa_logits[:, bc_idx, al_val:al_val+1, :] -> [Heads, 1, Vocab] -> [Heads, 1, 1, Vocab]
     
-    logits = logits[None, bc_idx, al_val : al_val + 1]
-    medusa_logits = medusa_logits[:, None, bc_idx, al_val : al_val + 1]
+    logits = logits[bc_idx:bc_idx+1, al_val:al_val+1, :]  # [1, 1, Vocab]
+    medusa_logits = medusa_logits[:, bc_idx:bc_idx+1, al_val:al_val+1, :]  # [Heads, 1, 1, Vocab]
     
     new_token += al_val + 1
     

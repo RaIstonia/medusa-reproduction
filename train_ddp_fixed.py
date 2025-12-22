@@ -36,6 +36,9 @@ def save_checkpoint(model, output_dir, tag="latest", metric=None):
     save_path = os.path.join(output_dir, f"checkpoint-{tag}")
     if not os.path.exists(save_path):
         os.makedirs(save_path, exist_ok=True)
+
+    if jt.in_mpi:
+        jt.sync_all()
         
     weights_path = os.path.join(save_path, "medusa_lm_head.jtr")
     jt.save(model.medusa_head.state_dict(), weights_path)
@@ -201,7 +204,8 @@ def main(args):
         medusa_num_heads=args.medusa_heads,
         medusa_num_layers=args.medusa_num_layers,
         hidden_size=llama_config.hidden_size,
-        vocab_size=llama_config.vocab_size
+        vocab_size=llama_config.vocab_size,
+        enable_lora_training=args.enable_lora_training
     )
     
     model = MedusaModel(medusa_config, base_model=base_model)
@@ -364,12 +368,26 @@ def main(args):
                 if global_step % 50 == 0:
                     jt.gc()
 
+    # 在训练循环结束后
+    if jt.in_mpi:
+        jt.sync_all()  # 确保所有进程完成训练
+
     if rank == 0:
         progress_bar.close()
         print("\n--- Saving Final Model ---")
-        save_checkpoint(model, args.output_dir, tag="final")
-        if os.path.exists(flag_file):
-            os.remove(flag_file)
+        try:
+            save_checkpoint(model, args.output_dir, tag="final")
+            print("Final model saved successfully")
+        except Exception as e:
+            print(f"Error saving final model: {e}")
+        finally:
+            if os.path.exists(flag_file):
+                os.remove(flag_file)
+
+    # 再次同步，确保所有进程一起退出
+    if jt.in_mpi:
+        jt.sync_all()
+        print(f"Rank {rank}: Process completed")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -392,6 +410,10 @@ if __name__ == "__main__":
     parser.add_argument("--logging_steps", type=int, default=5)
     parser.add_argument("--save_steps", type=int, default=500)
     parser.add_argument("--overwrite_cache", action="store_true")
+    
+    # LoRA Training
+    parser.add_argument("--enable_lora_training", action="store_true", 
+                        help="Enable LoRA training mode. When enabled, gradients will flow back to Base Model's LoRA layers.")
     
     # Data Processing
     parser.add_argument("--num_proc", type=int, default=16, help="Num processes for data map")

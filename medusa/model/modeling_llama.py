@@ -250,19 +250,20 @@ class LlamaAttention(nn.Module):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
         # [MODIFIED] KVCache Integration
+        # 与原版 PyTorch 保持一致的处理方式
         if past_key_value is not None:
-            # Note: In Medusa Phase 3, if past_key_value is a special KVCache object, 
-            # it might handle 'cat' differently. Here we implement the logic from source.
             if hasattr(past_key_value[0], 'cat'): 
-                 # If it's the custom class with .cat method (unlikely in pure Jittor but possible interface)
-                 pass 
+                # KVCache 模式：使用预分配的共享内存
+                key_states = past_key_value[0].cat(key_states, dim=2)
+                value_states = past_key_value[1].cat(value_states, dim=2)
+                # [关键修复] 原版 PyTorch 在使用 KVCache.cat() 后设 past_key_value = None
+                # 这是因为 KV 已经写入共享的 past_key_values_data，不需要再返回
+                past_key_value = None
             else:
-                 # Standard concat logic
-                 key_states = jt.concat([past_key_value[0], key_states], dim=2)
-                 value_states = jt.concat([past_key_value[1], value_states], dim=2)
-            
-        # Update past_key_value for return
-        past_key_value = (key_states, value_states) if use_cache else None
+                # 标准 concat 模式
+                key_states = jt.concat([past_key_value[0], key_states], dim=2)
+                value_states = jt.concat([past_key_value[1], value_states], dim=2)
+                past_key_value = (key_states, value_states) if use_cache else None
 
         # Repeat KV for GQA
         key_states = repeat_kv(key_states, self.num_key_value_groups)
