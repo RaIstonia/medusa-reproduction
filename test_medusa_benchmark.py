@@ -197,6 +197,18 @@ def generate_with_medusa(model, tokenizer, formatted_prompt,
                 # accept_length是medusa预测的token中被接受的数量
                 # 每个step实际接受的token数 = accept_length + 1 (base model的1个token)
                 accept_lengths.append(output["accept_length"] + 1)
+            
+            # 保存最后一次输出的性能统计信息（累计值）
+            if step_count == 1 or "total_medusa_heads_time" in output:
+                perf_stats = {
+                    "prefill_time": output.get("prefill_time", 0.0),
+                    "total_medusa_heads_time": output.get("total_medusa_heads_time", 0.0),
+                    "total_tree_decoding_time": output.get("total_tree_decoding_time", 0.0),
+                    "total_generate_candidates_time": output.get("total_generate_candidates_time", 0.0),
+                    "total_evaluate_posterior_time": output.get("total_evaluate_posterior_time", 0.0),
+                    "total_update_inputs_time": output.get("total_update_inputs_time", 0.0),
+                    "total_step_overhead_time": output.get("total_step_overhead_time", 0.0),
+                }
     
     end_time = time.time()
     generation_time = end_time - start_time
@@ -221,6 +233,33 @@ def generate_with_medusa(model, tokenizer, formatted_prompt,
     kv_cache_used_count = total_forward_calls
     fallback_count = 0  # Medusa 不使用 fallback
     
+    # 计算性能统计（使用最后一次输出的累计值）
+    perf_stats = perf_stats if 'perf_stats' in locals() else {
+        "prefill_time": 0.0,
+        "total_medusa_heads_time": 0.0,
+        "total_tree_decoding_time": 0.0,
+        "total_generate_candidates_time": 0.0,
+        "total_evaluate_posterior_time": 0.0,
+        "total_update_inputs_time": 0.0,
+        "total_step_overhead_time": 0.0,
+    }
+    
+    # 计算所有已统计的时间
+    measured_time = (
+        perf_stats.get("prefill_time", 0.0) +
+        perf_stats.get("total_medusa_heads_time", 0.0) +
+        perf_stats.get("total_tree_decoding_time", 0.0) +
+        perf_stats.get("total_generate_candidates_time", 0.0) +
+        perf_stats.get("total_evaluate_posterior_time", 0.0) +
+        perf_stats.get("total_update_inputs_time", 0.0) +
+        perf_stats.get("total_step_overhead_time", 0.0)
+    )
+    
+    # 计算剩余时间（包括循环外的开销、初始化等）
+    remaining_time = generation_time - measured_time
+    remaining_time = max(0.0, remaining_time)  # 确保不为负
+    perf_stats["remaining_time"] = remaining_time
+    
     return {
         "generated_ids": generated_ids,
         "num_tokens": num_generated_tokens,
@@ -232,7 +271,9 @@ def generate_with_medusa(model, tokenizer, formatted_prompt,
         "total_steps": total_steps,
         "total_forward_calls": total_forward_calls,
         "kv_cache_used_count": kv_cache_used_count,
-        "fallback_count": fallback_count
+        "fallback_count": fallback_count,
+        # 性能统计信息
+        "perf_stats": perf_stats
     }
 
 
@@ -283,6 +324,12 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
     # 记录时间
     start_time = time.time()
     
+    # 初始化性能统计变量
+    prefill_time = 0.0  # prefill阶段的时间
+    decoding_forward_time = 0.0  # decoding阶段forward的总时间
+    sampling_time = 0.0  # 采样token的总时间
+    other_time = 0.0  # 其他操作的时间
+    
     with jt.no_grad():
         generated_ids = []
         past_key_values = None
@@ -290,13 +337,16 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
         kv_cache_used_count = 0  # 统计使用KV cache的次数
         fallback_count = 0  # 统计使用fallback的次数
         
-        # 第一次forward：传入完整的input_ids
+        # 第一次forward：传入完整的input_ids（prefill阶段）
+        prefill_start = time.time()
         outputs = base_model(
             input_ids=input_ids,
             past_key_values=None,  # 第一次调用时明确传入None
             use_cache=True,
             return_dict=True
         )
+        jt.sync_all()
+        prefill_time = time.time() - prefill_start
         
         # 处理返回值（可能是tuple或对象）
         if isinstance(outputs, tuple):
@@ -319,6 +369,7 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
         next_token_logits = logits[0, -1, :]
         
         # 采样第一个token
+        sampling_start = time.time()
         if temperature == 0:
             next_token_id = jt.argmax(next_token_logits, dim=-1).item()
         else:
@@ -326,6 +377,7 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
             probs = jt.nn.softmax(next_token_logits / temperature, dim=-1)
             next_token_idx = jt.multinomial(probs, 1)
             next_token_id = next_token_idx.item()
+        sampling_time += time.time() - sampling_start
         
         generated_ids.append(next_token_id)
         
@@ -335,6 +387,7 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
             generation_time = end_time - start_time
             num_generated_tokens = len(generated_ids)
             throughput = num_generated_tokens / generation_time if generation_time > 0 else 0.0
+            other_time = generation_time - (prefill_time + decoding_forward_time + sampling_time)
             return {
                 "generated_ids": generated_ids,
                 "num_tokens": num_generated_tokens,
@@ -342,7 +395,13 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
                 "throughput": throughput,
                 "kv_cache_used_count": 0,
                 "fallback_count": 0,
-                "total_steps": 0
+                "total_steps": 0,
+                "perf_stats": {
+                    "prefill_time": prefill_time,
+                    "decoding_forward_time": decoding_forward_time,
+                    "sampling_time": sampling_time,
+                    "other_time": other_time
+                }
             }
         
         # 后续生成：只传入新生成的token
@@ -352,6 +411,7 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
             
             # 如果past_key_values无效，使用累积的input_ids（fallback方案）
             kv_cache_valid = _validate_past_key_values(past_key_values)
+            forward_start = time.time()
             if not kv_cache_valid:
                 # 如果past_key_values无效，累积所有生成的token并重新forward
                 fallback_count += 1
@@ -371,6 +431,8 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
                     use_cache=True,
                     return_dict=True
                 )
+            jt.sync_all()
+            decoding_forward_time += time.time() - forward_start
             
             # 处理返回值
             if isinstance(outputs, tuple):
@@ -393,6 +455,7 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
             next_token_logits = logits[0, -1, :]
             
             # 采样下一个token
+            sampling_start = time.time()
             if temperature == 0:
                 next_token_id = jt.argmax(next_token_logits, dim=-1).item()
             else:
@@ -400,6 +463,7 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
                 probs = jt.nn.softmax(next_token_logits / temperature, dim=-1)
                 next_token_idx = jt.multinomial(probs, 1)
                 next_token_id = next_token_idx.item()
+            sampling_time += time.time() - sampling_start
             
             generated_ids.append(next_token_id)
             
@@ -419,6 +483,10 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
     # 计算吞吐量 (tokens/s)
     throughput = num_generated_tokens / generation_time if generation_time > 0 else 0.0
     
+    # 计算其他时间（包括循环开销、numpy转换等）
+    other_time = generation_time - (prefill_time + decoding_forward_time + sampling_time)
+    other_time = max(0.0, other_time)  # 确保不为负
+    
     return {
         "generated_ids": generated_ids,
         "num_tokens": num_generated_tokens,
@@ -426,7 +494,13 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
         "throughput": throughput,
         "kv_cache_used_count": kv_cache_used_count,
         "fallback_count": fallback_count,
-        "total_steps": total_steps
+        "total_steps": total_steps,
+        "perf_stats": {
+            "prefill_time": prefill_time,
+            "decoding_forward_time": decoding_forward_time,
+            "sampling_time": sampling_time,
+            "other_time": other_time
+        }
     }
 
 
@@ -887,6 +961,28 @@ def main():
                       f"KV cache使用率: {kv_cache_rate:.1f}%")
             else:
                 print(f"  [KV Cache] 只生成了1个token，无需后续步骤")
+            
+            # 输出性能统计信息
+            perf_stats = result.get("perf_stats", {})
+            if perf_stats:
+                total_time = result['generation_time']
+                prefill_time = perf_stats.get("prefill_time", 0.0)
+                medusa_time = perf_stats.get("total_medusa_heads_time", 0.0)
+                tree_time = perf_stats.get("total_tree_decoding_time", 0.0)
+                gc_time = perf_stats.get("total_generate_candidates_time", 0.0)
+                ep_time = perf_stats.get("total_evaluate_posterior_time", 0.0)
+                ui_time = perf_stats.get("total_update_inputs_time", 0.0)
+                step_overhead_time = perf_stats.get("total_step_overhead_time", 0.0)
+                remaining_time = perf_stats.get("remaining_time", 0.0)
+                
+                print(f"  [性能分析] Prefill: {prefill_time:.3f}s ({prefill_time/total_time*100:.1f}%), "
+                      f"Medusa Heads: {medusa_time:.3f}s ({medusa_time/total_time*100:.1f}%), "
+                      f"Tree Decoding: {tree_time:.3f}s ({tree_time/total_time*100:.1f}%), "
+                      f"Step开销: {step_overhead_time:.3f}s ({step_overhead_time/total_time*100:.1f}%), "
+                      f"其他: {remaining_time:.3f}s ({remaining_time/total_time*100:.1f}%)")
+                print(f"  [详细] Generate Candidates: {gc_time:.3f}s, "
+                      f"Evaluate Posterior: {ep_time:.3f}s, "
+                      f"Update Inputs: {ui_time:.3f}s")
         except Exception as e:
             print(f"  错误: {e}")
             import traceback
@@ -925,7 +1021,8 @@ def main():
                 "throughput": result["throughput"],
                 "total_steps": result.get("total_steps", 0),
                 "kv_cache_used_count": result.get("kv_cache_used_count", 0),
-                "fallback_count": result.get("fallback_count", 0)
+                "fallback_count": result.get("fallback_count", 0),
+                "perf_stats": result.get("perf_stats", {})
             })
             
             base_total_tokens += result["num_tokens"]

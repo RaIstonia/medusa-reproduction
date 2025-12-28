@@ -8,41 +8,41 @@
     "max_new_token": 2048,
     "posterior_threshold": 0.01,
     "posterior_alpha": 0.1,
-    "num_samples": 10
+    "num_samples": 20
   },
   "medusa_results": [
     {
       "sample_id": 0,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions. ASSISTANT: ",
-      "num_tokens": 694,
-      "generation_time": 18.437966346740723,
-      "throughput": 37.63972593011476,
-      "avg_accept_per_step": 2.648854961832061,
-      "num_steps": 262,
-      "total_steps": 262,
-      "total_forward_calls": 263,
-      "kv_cache_used_count": 263,
+      "num_tokens": 728,
+      "generation_time": 16.03468132019043,
+      "throughput": 45.401588311164154,
+      "avg_accept_per_step": 2.609318996415771,
+      "num_steps": 279,
+      "total_steps": 279,
+      "total_forward_calls": 280,
+      "kv_cache_used_count": 280,
       "fallback_count": 0
     },
     {
       "sample_id": 1,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Draft a professional email seeking your supervisor's feedback on the 'Quarterly Financial Report' you prepared. Ask specifically about the data analysis, presentation style, and the clarity of conclusions drawn. Keep the email short and to the point. ASSISTANT: ",
-      "num_tokens": 229,
-      "generation_time": 4.849823713302612,
-      "throughput": 47.21821112216398,
-      "avg_accept_per_step": 3.013157894736842,
-      "num_steps": 76,
-      "total_steps": 76,
-      "total_forward_calls": 77,
-      "kv_cache_used_count": 77,
+      "num_tokens": 149,
+      "generation_time": 2.732072353363037,
+      "throughput": 54.537355065501416,
+      "avg_accept_per_step": 3.239130434782609,
+      "num_steps": 46,
+      "total_steps": 46,
+      "total_forward_calls": 47,
+      "kv_cache_used_count": 47,
       "fallback_count": 0
     },
     {
       "sample_id": 2,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine you are writing a blog post comparing two popular smartphone models. Develop an outline for the blog post, including key points and subheadings to effectively compare and contrast the features, performance, and user experience of the two models. Please answer in fewer than 200 words. ASSISTANT: ",
       "num_tokens": 175,
-      "generation_time": 3.8717446327209473,
-      "throughput": 45.19926198671197,
+      "generation_time": 3.4630916118621826,
+      "throughput": 50.532882064271625,
       "avg_accept_per_step": 2.8225806451612905,
       "num_steps": 62,
       "total_steps": 62,
@@ -53,74 +53,74 @@
     {
       "sample_id": 3,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a persuasive email to convince your introverted friend, who dislikes public speaking, to volunteer as a guest speaker at a local event. Use compelling arguments and address potential objections. Please be concise. ASSISTANT: ",
-      "num_tokens": 432,
-      "generation_time": 9.999824285507202,
-      "throughput": 43.200759099947376,
-      "avg_accept_per_step": 2.823529411764706,
-      "num_steps": 153,
-      "total_steps": 153,
-      "total_forward_calls": 154,
-      "kv_cache_used_count": 154,
+      "num_tokens": 2224,
+      "generation_time": 46.60224914550781,
+      "throughput": 47.72301854049851,
+      "avg_accept_per_step": 3.013550135501355,
+      "num_steps": 738,
+      "total_steps": 738,
+      "total_forward_calls": 739,
+      "kv_cache_used_count": 739,
       "fallback_count": 0
     },
     {
       "sample_id": 4,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Describe a vivid and unique character, using strong imagery and creative language. Please answer in fewer than two paragraphs. ASSISTANT: ",
-      "num_tokens": 247,
-      "generation_time": 5.675839185714722,
-      "throughput": 43.51779391876779,
-      "avg_accept_per_step": 2.6847826086956523,
-      "num_steps": 92,
-      "total_steps": 92,
-      "total_forward_calls": 93,
-      "kv_cache_used_count": 93,
+      "num_tokens": 284,
+      "generation_time": 6.0744805335998535,
+      "throughput": 46.75296898707751,
+      "avg_accept_per_step": 2.6542056074766354,
+      "num_steps": 107,
+      "total_steps": 107,
+      "total_forward_calls": 108,
+      "kv_cache_used_count": 108,
       "fallback_count": 0
     },
     {
       "sample_id": 5,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a descriptive paragraph about a bustling marketplace, incorporating sensory details such as smells, sounds, and visual elements to create an immersive experience for the reader. ASSISTANT: ",
-      "num_tokens": 2059,
-      "generation_time": 134.13168287277222,
-      "throughput": 15.35058649754675,
-      "avg_accept_per_step": 1.4209799861973775,
-      "num_steps": 1449,
-      "total_steps": 1449,
-      "total_forward_calls": 1450,
-      "kv_cache_used_count": 1450,
+      "num_tokens": 984,
+      "generation_time": 27.65145754814148,
+      "throughput": 35.58582755671543,
+      "avg_accept_per_step": 2.05,
+      "num_steps": 480,
+      "total_steps": 480,
+      "total_forward_calls": 481,
+      "kv_cache_used_count": 481,
       "fallback_count": 0
     },
     {
       "sample_id": 6,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Could you write a captivating short story beginning with the sentence: The old abandoned house at the end of the street held a secret that no one had ever discovered. ASSISTANT: ",
-      "num_tokens": 597,
-      "generation_time": 14.532862424850464,
-      "throughput": 41.07931270161617,
-      "avg_accept_per_step": 2.763888888888889,
-      "num_steps": 216,
-      "total_steps": 216,
-      "total_forward_calls": 217,
-      "kv_cache_used_count": 217,
+      "num_tokens": 639,
+      "generation_time": 13.316859483718872,
+      "throughput": 47.984286443905056,
+      "avg_accept_per_step": 2.730769230769231,
+      "num_steps": 234,
+      "total_steps": 234,
+      "total_forward_calls": 235,
+      "kv_cache_used_count": 235,
       "fallback_count": 0
     },
     {
       "sample_id": 7,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Craft an intriguing opening paragraph for a fictional short story. The story should involve a character who wakes up one morning to find that they can time travel. ASSISTANT: ",
-      "num_tokens": 873,
-      "generation_time": 18.550750732421875,
-      "throughput": 47.060090052001165,
-      "avg_accept_per_step": 3.2943396226415094,
-      "num_steps": 265,
-      "total_steps": 265,
-      "total_forward_calls": 266,
-      "kv_cache_used_count": 266,
+      "num_tokens": 258,
+      "generation_time": 5.5052032470703125,
+      "throughput": 46.86475474584868,
+      "avg_accept_per_step": 2.6597938144329896,
+      "num_steps": 97,
+      "total_steps": 97,
+      "total_forward_calls": 98,
+      "kv_cache_used_count": 98,
       "fallback_count": 0
     },
     {
       "sample_id": 8,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Help me construct a catchy, yet scientifically accurate, headline for an article on the latest discovery in renewable bio-energy, while carefully handling the ethical dilemmas surrounding bio-energy sources. Propose 4 options. ASSISTANT: ",
       "num_tokens": 131,
-      "generation_time": 3.544188976287842,
-      "throughput": 36.961911702916154,
+      "generation_time": 3.189052104949951,
+      "throughput": 41.07803688646721,
       "avg_accept_per_step": 2.3392857142857144,
       "num_steps": 56,
       "total_steps": 56,
@@ -132,13 +132,143 @@
       "sample_id": 9,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Edit the following paragraph to correct any grammatical errors:\nShe didn't remembre where is her purse, so I thinks its in the car but he's say it's on kitchen table but he are not sure, and then they asked me to looking for it, she's say, \"Can you?\", and I responds with, \"Maybe, but ain't no sure,\" and he not heard me, and, \"What?\", he asks, \"Did you found it?\". ASSISTANT: ",
       "num_tokens": 162,
-      "generation_time": 5.606529712677002,
-      "throughput": 28.894879417779514,
+      "generation_time": 5.046298265457153,
+      "throughput": 32.10273976647794,
       "avg_accept_per_step": 1.8,
       "num_steps": 90,
       "total_steps": 90,
       "total_forward_calls": 91,
       "kv_cache_used_count": 91,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 10,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Pretend yourself to be Elon Musk in all the following conversations. Speak like Elon Musk as much as possible. Why do we need to go to Mars? ASSISTANT: ",
+      "num_tokens": 237,
+      "generation_time": 5.099895477294922,
+      "throughput": 46.471540653164354,
+      "avg_accept_per_step": 2.5483870967741935,
+      "num_steps": 93,
+      "total_steps": 93,
+      "total_forward_calls": 94,
+      "kv_cache_used_count": 94,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 11,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Embrace the role of Sheldon from \"The Big Bang Theory\" as we delve into our conversation. Don’t start with phrases like \"As Sheldon\". Let's kick things off with the following question: \"What is your opinion on hand dryers?\" ASSISTANT: ",
+      "num_tokens": 400,
+      "generation_time": 9.789143800735474,
+      "throughput": 40.86159199846951,
+      "avg_accept_per_step": 2.3391812865497075,
+      "num_steps": 171,
+      "total_steps": 171,
+      "total_forward_calls": 172,
+      "kv_cache_used_count": 172,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 12,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine yourself as a doctor tasked with devising innovative remedies for various ailments and maladies. Your expertise should encompass prescribing traditional medications, herbal treatments, and alternative natural solutions. Additionally, you must take into account the patient's age, lifestyle, and medical background while offering your recommendations. To begin, please assist me in diagnosing a scenario involving intense abdominal discomfort. ASSISTANT: ",
+      "num_tokens": 384,
+      "generation_time": 9.92245078086853,
+      "throughput": 38.70011638056095,
+      "avg_accept_per_step": 2.245614035087719,
+      "num_steps": 171,
+      "total_steps": 171,
+      "total_forward_calls": 172,
+      "kv_cache_used_count": 172,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 13,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please take on the role of a relationship coach. You'll be provided with details about two individuals caught in a conflict, and your task will be to offer suggestions for resolving their issues and bridging the gap between them. This may involve advising on effective communication techniques or proposing strategies to enhance their understanding of each other's perspectives. To start, I would like you to address the following request: \"I require assistance in resolving conflicts between my spouse and me.\" ASSISTANT: ",
+      "num_tokens": 317,
+      "generation_time": 6.641446590423584,
+      "throughput": 47.7305652743015,
+      "avg_accept_per_step": 2.780701754385965,
+      "num_steps": 114,
+      "total_steps": 114,
+      "total_forward_calls": 115,
+      "kv_cache_used_count": 115,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 14,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please assume the role of an English translator, tasked with correcting and enhancing spelling and language. Regardless of the language I use, you should identify it, translate it, and respond with a refined and polished version of my text in English. Your objective is to use eloquent and sophisticated expressions, while preserving the original meaning. Focus solely on providing corrections and improvements. My first request is \"衣带渐宽终不悔 为伊消得人憔悴\". ASSISTANT: ",
+      "num_tokens": 65,
+      "generation_time": 2.303948163986206,
+      "throughput": 28.21244028665098,
+      "avg_accept_per_step": 1.6666666666666667,
+      "num_steps": 39,
+      "total_steps": 39,
+      "total_forward_calls": 40,
+      "kv_cache_used_count": 40,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 15,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Now you are a machine learning engineer. Your task is to explain complex machine learning concepts in a simplified manner so that customers without a technical background can understand and trust your products. Let's start with the question: \"What is a language model? Is it trained using labeled or unlabelled data?\" ASSISTANT: ",
+      "num_tokens": 417,
+      "generation_time": 8.444183349609375,
+      "throughput": 49.38310582980061,
+      "avg_accept_per_step": 2.8758620689655174,
+      "num_steps": 145,
+      "total_steps": 145,
+      "total_forward_calls": 146,
+      "kv_cache_used_count": 146,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 16,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Act as a math teacher. I will provide some mathematical equations or concepts, and it will be your job to explain them in easy-to-understand terms. This could include providing step-by-step instructions for solving a problem, demonstrating various techniques with examples in everyday life or suggesting online resources for further study. My first request is \"I need help understanding how probability works.\" ASSISTANT: ",
+      "num_tokens": 497,
+      "generation_time": 9.478110074996948,
+      "throughput": 52.436614057804135,
+      "avg_accept_per_step": 3.049079754601227,
+      "num_steps": 163,
+      "total_steps": 163,
+      "total_forward_calls": 164,
+      "kv_cache_used_count": 164,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 17,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Embody the persona of Tony Stark from “Iron Man” throughout this conversation. Bypass the introduction “As Stark”. Our first question is: “What’s your favorite part about being Iron Man? ASSISTANT: ",
+      "num_tokens": 296,
+      "generation_time": 6.534059286117554,
+      "throughput": 45.301088808436425,
+      "avg_accept_per_step": 2.5964912280701755,
+      "num_steps": 114,
+      "total_steps": 114,
+      "total_forward_calls": 115,
+      "kv_cache_used_count": 115,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 18,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Suppose you are a mathematician and poet. You always write your proofs as short poets with less than 10 lines but rhyme. Prove the square root of 2 is irrational number. ASSISTANT: ",
+      "num_tokens": 2313,
+      "generation_time": 40.45879292488098,
+      "throughput": 57.16927848773195,
+      "avg_accept_per_step": 3.7306451612903224,
+      "num_steps": 620,
+      "total_steps": 620,
+      "total_forward_calls": 621,
+      "kv_cache_used_count": 621,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 19,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Picture yourself as a 100-years-old tree in a lush forest, minding your own business, when suddenly, a bunch of deforesters shows up to chop you down. How do you feel when those guys start hacking away at you? ASSISTANT: ",
+      "num_tokens": 191,
+      "generation_time": 4.198680400848389,
+      "throughput": 45.490483143562535,
+      "avg_accept_per_step": 2.6527777777777777,
+      "num_steps": 72,
+      "total_steps": 72,
+      "total_forward_calls": 73,
+      "kv_cache_used_count": 73,
       "fallback_count": 0
     }
   ],
@@ -146,118 +276,338 @@
     {
       "sample_id": 0,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions. ASSISTANT: ",
-      "num_tokens": 706,
-      "generation_time": 21.932769536972046,
-      "throughput": 32.18927727343765,
-      "total_steps": 705,
-      "kv_cache_used_count": 705,
-      "fallback_count": 0
+      "num_tokens": 905,
+      "generation_time": 28.413694381713867,
+      "throughput": 31.850838818848867,
+      "total_steps": 904,
+      "kv_cache_used_count": 904,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.02374887466430664,
+        "decoding_forward_time": 22.861722469329834,
+        "sampling_time": 5.380688190460205,
+        "other_time": 0.14753484725952148
+      }
     },
     {
       "sample_id": 1,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Draft a professional email seeking your supervisor's feedback on the 'Quarterly Financial Report' you prepared. Ask specifically about the data analysis, presentation style, and the clarity of conclusions drawn. Keep the email short and to the point. ASSISTANT: ",
-      "num_tokens": 313,
-      "generation_time": 9.344347476959229,
-      "throughput": 33.496185878337464,
-      "total_steps": 312,
-      "kv_cache_used_count": 312,
-      "fallback_count": 0
+      "num_tokens": 595,
+      "generation_time": 18.120554447174072,
+      "throughput": 32.83563986601917,
+      "total_steps": 594,
+      "kv_cache_used_count": 594,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.02583789825439453,
+        "decoding_forward_time": 14.987633466720581,
+        "sampling_time": 3.007683515548706,
+        "other_time": 0.09939956665039062
+      }
     },
     {
       "sample_id": 2,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine you are writing a blog post comparing two popular smartphone models. Develop an outline for the blog post, including key points and subheadings to effectively compare and contrast the features, performance, and user experience of the two models. Please answer in fewer than 200 words. ASSISTANT: ",
-      "num_tokens": 58,
-      "generation_time": 1.6632733345031738,
-      "throughput": 34.870997326079795,
-      "total_steps": 57,
-      "kv_cache_used_count": 57,
-      "fallback_count": 0
+      "num_tokens": 388,
+      "generation_time": 11.610079288482666,
+      "throughput": 33.4192377467138,
+      "total_steps": 387,
+      "kv_cache_used_count": 387,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022714614868164062,
+        "decoding_forward_time": 9.777969360351562,
+        "sampling_time": 1.7422022819519043,
+        "other_time": 0.06719303131103516
+      }
     },
     {
       "sample_id": 3,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a persuasive email to convince your introverted friend, who dislikes public speaking, to volunteer as a guest speaker at a local event. Use compelling arguments and address potential objections. Please be concise. ASSISTANT: ",
-      "num_tokens": 227,
-      "generation_time": 6.71321439743042,
-      "throughput": 33.81390591173247,
-      "total_steps": 226,
-      "kv_cache_used_count": 226,
-      "fallback_count": 0
+      "num_tokens": 528,
+      "generation_time": 15.935541868209839,
+      "throughput": 33.13348264945535,
+      "total_steps": 527,
+      "kv_cache_used_count": 527,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022610902786254883,
+        "decoding_forward_time": 13.254777669906616,
+        "sampling_time": 2.5688767433166504,
+        "other_time": 0.08927655220031738
+      }
     },
     {
       "sample_id": 4,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Describe a vivid and unique character, using strong imagery and creative language. Please answer in fewer than two paragraphs. ASSISTANT: ",
-      "num_tokens": 468,
-      "generation_time": 14.119312763214111,
-      "throughput": 33.146089179305406,
-      "total_steps": 467,
-      "kv_cache_used_count": 467,
-      "fallback_count": 0
+      "num_tokens": 315,
+      "generation_time": 9.24632453918457,
+      "throughput": 34.06759071294503,
+      "total_steps": 314,
+      "kv_cache_used_count": 314,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.023572206497192383,
+        "decoding_forward_time": 7.963371753692627,
+        "sampling_time": 1.206068992614746,
+        "other_time": 0.05331158638000488
+      }
     },
     {
       "sample_id": 5,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a descriptive paragraph about a bustling marketplace, incorporating sensory details such as smells, sounds, and visual elements to create an immersive experience for the reader. ASSISTANT: ",
-      "num_tokens": 604,
-      "generation_time": 18.524355173110962,
-      "throughput": 32.60572334937394,
-      "total_steps": 603,
-      "kv_cache_used_count": 603,
-      "fallback_count": 0
+      "num_tokens": 673,
+      "generation_time": 20.553473234176636,
+      "throughput": 32.74385756276585,
+      "total_steps": 672,
+      "kv_cache_used_count": 672,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.02236032485961914,
+        "decoding_forward_time": 16.85879945755005,
+        "sampling_time": 3.5601437091827393,
+        "other_time": 0.11216974258422852
+      }
     },
     {
       "sample_id": 6,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Could you write a captivating short story beginning with the sentence: The old abandoned house at the end of the street held a secret that no one had ever discovered. ASSISTANT: ",
-      "num_tokens": 554,
-      "generation_time": 16.89427947998047,
-      "throughput": 32.792164984395086,
-      "total_steps": 553,
-      "kv_cache_used_count": 553,
-      "fallback_count": 0
+      "num_tokens": 582,
+      "generation_time": 17.607614994049072,
+      "throughput": 33.05388039190437,
+      "total_steps": 581,
+      "kv_cache_used_count": 581,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022696971893310547,
+        "decoding_forward_time": 14.631053447723389,
+        "sampling_time": 2.8547556400299072,
+        "other_time": 0.09910893440246582
+      }
     },
     {
       "sample_id": 7,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Craft an intriguing opening paragraph for a fictional short story. The story should involve a character who wakes up one morning to find that they can time travel. ASSISTANT: ",
-      "num_tokens": 217,
-      "generation_time": 6.348757982254028,
-      "throughput": 34.179913710139175,
-      "total_steps": 216,
-      "kv_cache_used_count": 216,
-      "fallback_count": 0
+      "num_tokens": 146,
+      "generation_time": 4.164845943450928,
+      "throughput": 35.055318247624456,
+      "total_steps": 145,
+      "kv_cache_used_count": 145,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.02327728271484375,
+        "decoding_forward_time": 3.6589877605438232,
+        "sampling_time": 0.45965123176574707,
+        "other_time": 0.022929668426513672
+      }
     },
     {
       "sample_id": 8,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Help me construct a catchy, yet scientifically accurate, headline for an article on the latest discovery in renewable bio-energy, while carefully handling the ethical dilemmas surrounding bio-energy sources. Propose 4 options. ASSISTANT: ",
-      "num_tokens": 127,
-      "generation_time": 3.6675846576690674,
-      "throughput": 34.627694205895935,
-      "total_steps": 126,
-      "kv_cache_used_count": 126,
-      "fallback_count": 0
+      "num_tokens": 106,
+      "generation_time": 3.0097577571868896,
+      "throughput": 35.218781228119276,
+      "total_steps": 105,
+      "kv_cache_used_count": 105,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.023137331008911133,
+        "decoding_forward_time": 2.652585744857788,
+        "sampling_time": 0.31677985191345215,
+        "other_time": 0.01725482940673828
+      }
     },
     {
       "sample_id": 9,
       "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Edit the following paragraph to correct any grammatical errors:\nShe didn't remembre where is her purse, so I thinks its in the car but he's say it's on kitchen table but he are not sure, and then they asked me to looking for it, she's say, \"Can you?\", and I responds with, \"Maybe, but ain't no sure,\" and he not heard me, and, \"What?\", he asks, \"Did you found it?\". ASSISTANT: ",
-      "num_tokens": 186,
-      "generation_time": 5.555064678192139,
-      "throughput": 33.48295848474847,
-      "total_steps": 185,
-      "kv_cache_used_count": 185,
-      "fallback_count": 0
+      "num_tokens": 161,
+      "generation_time": 4.862332820892334,
+      "throughput": 33.111678268550385,
+      "total_steps": 160,
+      "kv_cache_used_count": 160,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022147417068481445,
+        "decoding_forward_time": 4.14406156539917,
+        "sampling_time": 0.6683876514434814,
+        "other_time": 0.027736186981201172
+      }
+    },
+    {
+      "sample_id": 10,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Pretend yourself to be Elon Musk in all the following conversations. Speak like Elon Musk as much as possible. Why do we need to go to Mars? ASSISTANT: ",
+      "num_tokens": 327,
+      "generation_time": 9.640748977661133,
+      "throughput": 33.91852653333278,
+      "total_steps": 326,
+      "kv_cache_used_count": 326,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.023122787475585938,
+        "decoding_forward_time": 8.248162269592285,
+        "sampling_time": 1.3147950172424316,
+        "other_time": 0.05466890335083008
+      }
+    },
+    {
+      "sample_id": 11,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Embrace the role of Sheldon from \"The Big Bang Theory\" as we delve into our conversation. Don’t start with phrases like \"As Sheldon\". Let's kick things off with the following question: \"What is your opinion on hand dryers?\" ASSISTANT: ",
+      "num_tokens": 150,
+      "generation_time": 4.328243017196655,
+      "throughput": 34.656094725742314,
+      "total_steps": 149,
+      "kv_cache_used_count": 149,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022180795669555664,
+        "decoding_forward_time": 3.7547643184661865,
+        "sampling_time": 0.5272843837738037,
+        "other_time": 0.024013519287109375
+      }
+    },
+    {
+      "sample_id": 12,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine yourself as a doctor tasked with devising innovative remedies for various ailments and maladies. Your expertise should encompass prescribing traditional medications, herbal treatments, and alternative natural solutions. Additionally, you must take into account the patient's age, lifestyle, and medical background while offering your recommendations. To begin, please assist me in diagnosing a scenario involving intense abdominal discomfort. ASSISTANT: ",
+      "num_tokens": 71,
+      "generation_time": 2.0360541343688965,
+      "throughput": 34.871371444162236,
+      "total_steps": 70,
+      "kv_cache_used_count": 70,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.026807785034179688,
+        "decoding_forward_time": 1.7516238689422607,
+        "sampling_time": 0.24642348289489746,
+        "other_time": 0.011198997497558594
+      }
+    },
+    {
+      "sample_id": 13,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please take on the role of a relationship coach. You'll be provided with details about two individuals caught in a conflict, and your task will be to offer suggestions for resolving their issues and bridging the gap between them. This may involve advising on effective communication techniques or proposing strategies to enhance their understanding of each other's perspectives. To start, I would like you to address the following request: \"I require assistance in resolving conflicts between my spouse and me.\" ASSISTANT: ",
+      "num_tokens": 177,
+      "generation_time": 5.2311389446258545,
+      "throughput": 33.83584375670976,
+      "total_steps": 176,
+      "kv_cache_used_count": 176,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022627830505371094,
+        "decoding_forward_time": 4.443824529647827,
+        "sampling_time": 0.7324995994567871,
+        "other_time": 0.03218698501586914
+      }
+    },
+    {
+      "sample_id": 14,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Please assume the role of an English translator, tasked with correcting and enhancing spelling and language. Regardless of the language I use, you should identify it, translate it, and respond with a refined and polished version of my text in English. Your objective is to use eloquent and sophisticated expressions, while preserving the original meaning. Focus solely on providing corrections and improvements. My first request is \"衣带渐宽终不悔 为伊消得人憔悴\". ASSISTANT: ",
+      "num_tokens": 33,
+      "generation_time": 0.9533858299255371,
+      "throughput": 34.613478577269625,
+      "total_steps": 32,
+      "kv_cache_used_count": 32,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022953510284423828,
+        "decoding_forward_time": 0.8031549453735352,
+        "sampling_time": 0.1219484806060791,
+        "other_time": 0.0053288936614990234
+      }
+    },
+    {
+      "sample_id": 15,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Now you are a machine learning engineer. Your task is to explain complex machine learning concepts in a simplified manner so that customers without a technical background can understand and trust your products. Let's start with the question: \"What is a language model? Is it trained using labeled or unlabelled data?\" ASSISTANT: ",
+      "num_tokens": 716,
+      "generation_time": 22.069921731948853,
+      "throughput": 32.4423443225675,
+      "total_steps": 715,
+      "kv_cache_used_count": 715,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.023485898971557617,
+        "decoding_forward_time": 17.971781015396118,
+        "sampling_time": 3.957799196243286,
+        "other_time": 0.11685562133789062
+      }
+    },
+    {
+      "sample_id": 16,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Act as a math teacher. I will provide some mathematical equations or concepts, and it will be your job to explain them in easy-to-understand terms. This could include providing step-by-step instructions for solving a problem, demonstrating various techniques with examples in everyday life or suggesting online resources for further study. My first request is \"I need help understanding how probability works.\" ASSISTANT: ",
+      "num_tokens": 484,
+      "generation_time": 14.649036645889282,
+      "throughput": 33.039715286384855,
+      "total_steps": 483,
+      "kv_cache_used_count": 483,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.02287912368774414,
+        "decoding_forward_time": 12.1708345413208,
+        "sampling_time": 2.3740439414978027,
+        "other_time": 0.08127903938293457
+      }
+    },
+    {
+      "sample_id": 17,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Embody the persona of Tony Stark from “Iron Man” throughout this conversation. Bypass the introduction “As Stark”. Our first question is: “What’s your favorite part about being Iron Man? ASSISTANT: ",
+      "num_tokens": 310,
+      "generation_time": 9.102780103683472,
+      "throughput": 34.05552990064622,
+      "total_steps": 309,
+      "kv_cache_used_count": 309,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022969484329223633,
+        "decoding_forward_time": 7.773479223251343,
+        "sampling_time": 1.2533135414123535,
+        "other_time": 0.05301785469055176
+      }
+    },
+    {
+      "sample_id": 18,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Suppose you are a mathematician and poet. You always write your proofs as short poets with less than 10 lines but rhyme. Prove the square root of 2 is irrational number. ASSISTANT: ",
+      "num_tokens": 160,
+      "generation_time": 4.62102746963501,
+      "throughput": 34.624334317717775,
+      "total_steps": 159,
+      "kv_cache_used_count": 159,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.022817373275756836,
+        "decoding_forward_time": 4.04999303817749,
+        "sampling_time": 0.5219533443450928,
+        "other_time": 0.026263713836669922
+      }
+    },
+    {
+      "sample_id": 19,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Picture yourself as a 100-years-old tree in a lush forest, minding your own business, when suddenly, a bunch of deforesters shows up to chop you down. How do you feel when those guys start hacking away at you? ASSISTANT: ",
+      "num_tokens": 87,
+      "generation_time": 2.4514386653900146,
+      "throughput": 35.489364359095084,
+      "total_steps": 86,
+      "kv_cache_used_count": 86,
+      "fallback_count": 0,
+      "perf_stats": {
+        "prefill_time": 0.02291560173034668,
+        "decoding_forward_time": 2.153696298599243,
+        "sampling_time": 0.26067566871643066,
+        "other_time": 0.01415109634399414
+      }
     }
   ],
   "summary": {
     "medusa": {
-      "total_tokens": 5599,
-      "total_time": 219.2012128829956,
-      "avg_throughput": 25.542741877932094,
-      "avg_accept_per_step": 2.057699375229695,
-      "num_samples": 10
+      "total_tokens": 10851,
+      "total_time": 232.48615646362305,
+      "avg_throughput": 46.67374679445849,
+      "avg_accept_per_step": 2.7887432536622976,
+      "num_samples": 20
     },
     "base_model": {
-      "total_tokens": 3460,
-      "total_time": 104.76295948028564,
-      "avg_throughput": 33.02694021975491,
-      "num_samples": 10
+      "total_tokens": 6914,
+      "total_time": 208.60799479484558,
+      "avg_throughput": 33.14350443183894,
+      "num_samples": 20
     },
-    "speedup": 0.7733911076223108
+    "speedup": 1.4082320984024208
   }
 }

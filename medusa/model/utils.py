@@ -249,12 +249,13 @@ def generate_candidates(medusa_logits, logits, tree_indices, retrieve_indices,
         # Suppress BOS token (usually token 1) and PAD token (usually token 0)
         # 注意：不完全抑制EOS token，允许它在适当时候被生成以自然结束生成
         # 只抑制BOS和PAD，因为它们在生成过程中不应该出现
-        special_tokens_to_suppress = [0, 1]  # <unk>, <s>
+        # === [性能优化] 一次性索引赋值，替换 for 循环 ===
+        suppress_ids = [0, 1]  # <unk>, <s>
         neg_inf = jt.float32(-1e9)  # Use large negative instead of -inf for numerical stability
         
-        for tok_id in special_tokens_to_suppress:
-            base_logits[:, tok_id] = neg_inf
-            medusa_logits_last[:, tok_id] = neg_inf
+        # Jittor 支持列表/Tensor索引赋值，一次性完成所有抑制
+        base_logits[:, suppress_ids] = neg_inf
+        medusa_logits_last[:, suppress_ids] = neg_inf
         
         # 对于EOS token，不完全抑制，而是降低其概率（允许在适当时候生成）
         # 这样可以允许模型在完成回答后自然结束
@@ -794,33 +795,32 @@ def update_inference_inputs(
     2. 从 tree_outputs 中提取最后一个被接受 token 的 hidden state，用于下一步的 medusa heads 预测
     3. 不再需要 Correction Step Forward，因为 hidden state 已经在 tree decoding 中计算好了
     """
-    # 1. 解析被接受的路径
-    bc_idx = best_candidate.item()
+    # 1. 准备基础数据
+    bc_idx = int(best_candidate.item())
     al_val = int(accept_length)
+    prev_len = int(prev_len_before_tree)
+    new_len = prev_len + al_val + 1
     
-    # [CRITICAL] Gather 所有被接受的节点，包括 Index 0 (Base Model Prediction)
-    # retrieve_indices[bc_idx] 包含了 [0, 1, 4...] 这样的展平索引
-    # 我们需要把这些位置的 KV 全部整理到 Cache 的末尾
-    accepted_tree_indices = retrieve_indices[bc_idx, :al_val + 1]
+    # 2. [性能优化] 预计算所有层通用的 Gather 索引
+    # retrieve_indices 已经是 [Batch, MaxLen] 形式
+    # 我们取出 [0...al_val] 的 tree 索引 (相对于 tree window)
+    relative_indices = retrieve_indices[bc_idx, :al_val + 1]  # Tensor
     
-    # 转换为 Jittor Var
-    if not isinstance(accepted_tree_indices, jt.Var):
-        accepted_tree_indices = jt.array(accepted_tree_indices, dtype="int64")
-    else:
-        accepted_tree_indices = accepted_tree_indices.int64()
+    # 转换为绝对位置索引：prev_len + relative_index
+    # 这样所有层都可以直接使用这个 read_indices
+    read_indices = relative_indices + prev_len
     
-    # 确保 prev_len 是 int
-    if hasattr(prev_len_before_tree, "item"):
-        prev_len_int = int(prev_len_before_tree.item())
-    else:
-        prev_len_int = int(prev_len_before_tree)
+    # 确保是 int64 且扁平化
+    if not isinstance(read_indices, jt.Var):
+        read_indices = jt.array(read_indices).int64()
+    read_indices = read_indices.view(-1)
     
-    # 2. 整理 KV Cache (Gather & Reset)
-    # 无论 al_val 是多少，我们都执行 gather。
-    # 如果 al_val=0，我们 gather [0] 到 prev_len。这等价于确认第一个 token 并重置长度。
+    # 3. 批量更新 KV Cache
+    # 这里的 Python 循环只做最轻量的函数调用
     for layer_caches in past_key_values:
-        for cache in layer_caches:  # K and V
-            cache.gather_and_reset(accepted_tree_indices, prev_len_int)
+        # layer_caches[0] is K, [1] is V
+        layer_caches[0].gather_and_reset(read_indices, prev_len, new_len)
+        layer_caches[1].gather_and_reset(read_indices, prev_len, new_len)
     
     # 3. 更新 input_ids (历史记录)
     # candidates: [Num_Candidates, Max_Len]
@@ -853,6 +853,14 @@ def update_inference_inputs(
     if final_logits.shape[1] == 0:
         final_logits = tree_logits[:, -1:, :]  # [1, 1, Vocab]
     
+    # === [优化] 直接提取 Medusa Logits，避免在循环外再次计算 ===
+    # tree_medusa_logits: [Heads, Batch, Tree_Size, Vocab]
+    # 我们需要取 [:, 0, final_accepted_node_index, :] -> [Heads, Vocab]
+    final_medusa_logits = tree_medusa_logits[:, 0, final_accepted_node_index, :]  # [Heads, Vocab]
+    
+    # 确保切断梯度/图连接
+    final_medusa_logits = final_medusa_logits.stop_grad()
+    
     new_token += al_val + 1
     
-    return input_ids, last_hidden_state, final_logits, new_token
+    return input_ids, last_hidden_state, final_logits, final_medusa_logits, new_token

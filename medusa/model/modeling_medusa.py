@@ -3,6 +3,7 @@ from jittor import nn
 # from transformers import PretrainedConfig
 import warnings
 import copy
+import time
 
 from .kv_cache_u import initialize_past_key_values
 from .utils import (
@@ -19,10 +20,12 @@ DEFAULT_MEDUSA_CHOICES = [
     [0], [0, 0], [1], [0, 1], [2], [0, 0, 0], [1, 0], [0, 2], [3], [0, 3], 
     [4], [0, 4], [2, 0], [0, 5], [0, 0, 1], [5], [0, 6], [6], [0, 7], [0, 1, 0], 
     [1, 1], [7], [0, 8], [0, 0, 2], [3, 0], [0, 9], [8], [9], [1, 0, 0], [0, 2, 0], 
-    [1, 2], [0, 0, 3], [4, 0], [2, 1], [0, 0, 4], [0, 0, 5], [0, 0, 0, 0], [0, 1, 1], 
+    [1, 2], [0, 0, 3], [4, 0], [2, 1], [0, 0, 4], [0, 0, 5], [0, 1, 1], 
     [0, 0, 6], [0, 3, 0], [5, 0], [1, 3], [0, 0, 7], [0, 0, 8], [0, 0, 9], [6, 0], 
     [0, 4, 0], [1, 4], [7, 0], [0, 1, 2], [2, 0, 0], [3, 1], [2, 2], [8, 0], 
-    [0, 5, 0], [1, 5], [1, 0, 1], [0, 2, 1], [9, 0], [0, 6, 0], [0, 0, 0, 1], [1, 6], [0, 7, 0]
+    [0, 5, 0], [1, 5], [1, 0, 1], [0, 2, 1], [9, 0], [0, 6, 0], [1, 6], [0, 7, 0]
+    # 注意：已删除长度为4的路径 [0, 0, 0, 0] 和 [0, 0, 0, 1]
+    # 因为训练时只使用了3个medusa heads，理论上最大深度应为3
 ]
 
 class PretrainedConfig:
@@ -283,6 +286,12 @@ class MedusaModel(nn.Module):
         
         if medusa_choices is None:
             medusa_choices = DEFAULT_MEDUSA_CHOICES
+        
+        # 根据 medusa_num_heads 过滤 medusa_choices，只保留深度 <= medusa_num_heads 的路径
+        # 这确保树结构与实际训练的 medusa heads 数量匹配，避免 accept_length 超过理论最大值
+        filtered_choices = [choice for choice in medusa_choices if len(choice) <= self.medusa_num_heads]
+        if len(filtered_choices) != len(medusa_choices):
+            medusa_choices = filtered_choices
 
         if hasattr(self, "medusa_choices") and self.medusa_choices == medusa_choices:
             medusa_buffers = self.medusa_buffers
@@ -299,9 +308,25 @@ class MedusaModel(nn.Module):
         
         reset_medusa_mode(self)
 
+        # 初始化性能统计变量
+        prefill_time = 0.0  # prefill阶段的总时间（包含base model forward和medusa heads）
+        total_medusa_heads_time = 0.0  # medusa heads预测token的总时间（不包括prefill）
+        total_tree_decoding_time = 0.0  # base model tree decoding的总时间
+        total_generate_candidates_time = 0.0  # generate_candidates的总时间
+        total_evaluate_posterior_time = 0.0  # evaluate_posterior的总时间
+        total_update_inputs_time = 0.0  # update_inference_inputs的总时间
+        total_step_overhead_time = 0.0  # 每个step中未统计的时间（numpy转换、字符串处理、边界检查等）
+        
+        # 初始化（prefill）阶段：包含base model forward和medusa heads计算
+        prefill_start = time.time()
         medusa_logits, logits = initialize_medusa(
             input_ids, self, medusa_buffers["medusa_attn_mask"], past_key_values
         )
+        jt.sync_all()
+        prefill_time = time.time() - prefill_start
+        
+        # 初始化prev_step_measured_time（用于计算每个step中已统计的时间）
+        self._prev_step_measured_time = 0.0
 
         new_token = 0
         input_len = input_ids.shape[1]
@@ -324,6 +349,7 @@ class MedusaModel(nn.Module):
             safe_margin = 64
 
         for idx in range(max_steps):
+            step_start_time = time.time()
             # === [核心修复] 边界检查 ===
             # 获取当前序列长度
             current_seq_len = input_ids.shape[1]
@@ -357,6 +383,7 @@ class MedusaModel(nn.Module):
             # (A) Generate Candidates
             # suppress_special_tokens=True: 抑制 BOS/EOS 等特殊 token
             # 避免 base model 在某些情况下给特殊 token 很高的概率导致生成跑偏
+            gc_start = time.time()
             candidates, tree_candidates = generate_candidates(
                 medusa_logits,
                 logits,
@@ -370,6 +397,8 @@ class MedusaModel(nn.Module):
                 fast=fast,
                 suppress_special_tokens=True,
             )
+            jt.sync_all()
+            total_generate_candidates_time += time.time() - gc_start
 
             # (B) Tree Decoding
             # 保存 Tree Decoding 之前的 KV Cache 长度（用于后续 gather_and_reset）
@@ -382,6 +411,8 @@ class MedusaModel(nn.Module):
             if self.base_model.model.medusa_mask is None:
                 self.base_model.model.medusa_mask = medusa_buffers["medusa_attn_mask"]
             
+            # 统计tree decoding（base model forward）的时间
+            td_start = time.time()
             tree_medusa_logits, tree_logits, original_tree_logits, original_tree_medusa_logits, tree_outputs = tree_decoding(
                 self,
                 tree_candidates,
@@ -390,12 +421,15 @@ class MedusaModel(nn.Module):
                 input_ids,
                 medusa_buffers["retrieve_indices"],
             )
+            jt.sync_all()
+            total_tree_decoding_time += time.time() - td_start
 
             # (C) Evaluate Posterior
             # 检查是否需要返回调试信息（通过检查是否有debug_callback）
             return_debug = hasattr(self, '_debug_mode') and self._debug_mode
             # 获取当前序列（用于调试信息）
             current_seq_for_debug = input_ids[0] if return_debug else None
+            ep_start = time.time()
             if return_debug:
                 best_candidate, accept_length, debug_info = evaluate_posterior(
                     tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast, tokenizer=tokenizer, return_debug_info=True, medusa_choices=medusa_choices, current_sequence=current_seq_for_debug
@@ -407,13 +441,16 @@ class MedusaModel(nn.Module):
                 best_candidate, accept_length = evaluate_posterior(
                     tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast, tokenizer=tokenizer, medusa_choices=medusa_choices, current_sequence=None
                 )
+            jt.sync_all()
+            total_evaluate_posterior_time += time.time() - ep_start
 
             # (D) Efficient Update (关键优化)
             # 核心优化：从 Tree Decoding 的结果中直接提取最后一个被接受 token 的 hidden state
             # 不再需要 Correction Step Forward，因为 hidden state 已经在 tree decoding 中计算好了
             
-            # 调用新的 update_inference_inputs，返回 last_hidden_state 用于下一步的 medusa heads 预测
-            input_ids, last_hidden_state, logits, new_token = update_inference_inputs(
+            # 调用新的 update_inference_inputs，返回 last_hidden_state 和 medusa_logits
+            ui_start = time.time()
+            input_ids, last_hidden_state, logits, medusa_logits, new_token = update_inference_inputs(
                 input_ids=input_ids,
                 candidates=candidates,
                 best_candidate=best_candidate,
@@ -426,71 +463,116 @@ class MedusaModel(nn.Module):
                 past_key_values=past_key_values,         # 传入对象列表以进行 Gather
                 prev_len_before_tree=prev_len_before_tree  # 传入基准长度
             )
+            jt.sync_all()
+            total_update_inputs_time += time.time() - ui_start
             
-            # 从 last_hidden_state 计算 medusa_logits（用于下一步的 generate_candidates）
-            # last_hidden_state shape: [Batch, 1, Hidden_Size]
-            # 这里直接使用 medusa heads 计算 logits，不需要再次 forward
-            # medusa_head 期望的输入形状是 [Batch, Seq_Len, Hidden_Size]，所以直接使用 last_hidden_state
-            hs = last_hidden_state  # [Batch, 1, Hidden_Size]，已经是 float32 类型
+            # === [优化] 直接使用 update_inference_inputs 返回的 medusa_logits ===
+            # 这里的 medusa_logits 已经是 [Heads, Vocab] 格式，从 tree_medusa_logits 中提取
+            # 需要调整为 [Heads, Batch, 1, Vocab] 格式用于 generate_candidates
+            if medusa_logits.ndim == 2:
+                # [Heads, Vocab] -> [Heads, Batch, 1, Vocab]
+                medusa_logits = medusa_logits.unsqueeze(1).unsqueeze(2)
+            elif medusa_logits.ndim == 3:
+                # [Heads, Batch, Vocab] -> [Heads, Batch, 1, Vocab]
+                medusa_logits = medusa_logits.unsqueeze(2)
             
-            # 计算 medusa_logits
-            medusa_logits_list = []
-            for i in range(self.medusa_num_heads):
-                medusa_logits_list.append(self.medusa_head[i](hs))
-            medusa_logits = jt.stack(medusa_logits_list, dim=0)  # [Heads, Batch, 1, Vocab]
+            # 更新统计时间（medusa heads 计算已包含在 update_inputs_time 中）
+            total_medusa_heads_time = total_update_inputs_time  # 合并时间统计
             
             # logits 已经由 update_inference_inputs 从 tree_logits 中提取
             # logits shape: [Batch, 1, Vocab]
             
-            # 检查 EOS token
+            # === [性能优化] 极简的 Loop 结尾 ===
+            # 1. 计算 ids（用于统计 token 数量），但仅在需要时进行解码
+            # 在 fast 模式下，我们只计算 ids 但不进行字符串解码
+            output_start = time.time()
+            curr_ids = input_ids[0, input_len:].numpy().tolist()
+            output_time = time.time() - output_start
+            
+            # 2. 仅在非 fast 模式或 debug 模式下才进行字符串解码
+            if not fast or self._debug_mode:
+                if tokenizer is not None:
+                    text = tokenizer.decode(curr_ids, skip_special_tokens=True)
+                else:
+                    text = None
+            else:
+                # 测速模式：跳过字符串解码（但保留 ids 用于统计）
+                text = None
+            
+            # 2. 高效的 EOS 检查
+            # 不转换整个 list，直接检查最后一个 token
             eos_detected = False
             if tokenizer is not None and tokenizer.eos_token_id is not None:
-                # 检查 accepted_tokens 中是否包含 EOS
-                # 注意：candidates 已经在 update_inference_inputs 中被使用并更新到 input_ids 中
-                # 我们可以直接从 input_ids 中检查最后一个被接受的 token 是否是 EOS
-                # 或者通过检查当前 input_ids 的最后一个 token
+                # 只获取最后一个 token 的值 (Scalar Sync，比全量 Sync 快得多)
                 try:
-                    # 从 input_ids 的最后一个位置检查 EOS（更安全，因为 input_ids 已经被更新）
                     last_token_id = int(input_ids[0, -1].item())
                     if last_token_id == tokenizer.eos_token_id:
                         eos_detected = True
                 except:
-                    # 如果上面的方法失败，尝试从 candidates 中获取（需要确保类型正确）
-                    bc_idx = best_candidate.item() if hasattr(best_candidate, 'item') else int(best_candidate)
-                    al_val = int(accept_length)
-                    # 使用 detach 和 stop_grad 确保 candidates 是独立的
-                    accepted_tokens = candidates[bc_idx:bc_idx+1, :al_val + 1].detach().int64()  # [1, al_val+1]
-                    accepted_tokens.sync()  # 确保计算完成
-                    accepted_tokens_np = accepted_tokens.numpy().flatten()
-                    if tokenizer.eos_token_id in accepted_tokens_np:
-                        eos_detected = True
+                    # 如果上面的方法失败，跳过 EOS 检查（在 fast 模式下）
+                    pass
             
-            # 测试脚本需要: step, accept_length, 和 ids
-            # 获取所有新生成的 ids (转为 list)
-            # 注意：input_ids 已经在 update_inference_inputs 中更新了
-            curr_ids = input_ids[0, input_len:].numpy().tolist()
+            # 计算当前step的总时间和已统计时间
+            step_end_time = time.time()
+            step_total_time = step_end_time - step_start_time
             
-            if tokenizer is not None:
-                text = tokenizer.decode(curr_ids, skip_special_tokens=True)
-                
-                # yield 一个包含丰富信息的字典
-                yield {
-                    "text": text,
-                    "ids": curr_ids,          # 测试脚本需要统计 len(ids)
-                    "accept_length": accept_length, # 用于统计加速效率
-                    "step": idx               # 当前步数 (idxs)
-                }
-                
-                # Check EOS (如果之前已经检测到EOS，这里也会break)
-                if eos_detected or (tokenizer.eos_token_id is not None and tokenizer.eos_token_id in curr_ids):
-                    break
+            # 计算本次step中已统计的时间
+            # 记录本次step开始时的累计时间值
+            if idx == 0:
+                # 第一个step，记录初始累计时间
+                prev_measured_time = 0.0
             else:
-                # 即使没有 tokenizer，也返回结构化数据
-                yield {
-                    "ids": curr_ids,
-                    "accept_length": accept_length,
-                    "step": idx
-                }
+                # 使用上一次的累计时间
+                prev_measured_time = getattr(self, '_prev_step_measured_time', 0.0)
+            
+            # 当前累计的已统计时间（不包括output_time，因为它是本次step新增的）
+            current_measured_time = (
+                total_generate_candidates_time +
+                total_tree_decoding_time +
+                total_evaluate_posterior_time +
+                total_update_inputs_time +
+                total_medusa_heads_time
+            )
+            
+            # 本次step中已统计的时间 = 当前累计时间 - 上次累计时间 + 本次output时间
+            step_measured_time = current_measured_time - prev_measured_time + output_time
+            
+            # 本次step中未统计的时间（边界检查、EOS检查等）
+            step_overhead = step_total_time - step_measured_time
+            total_step_overhead_time += step_overhead
+            
+            # 保存当前累计时间，供下次使用
+            self._prev_step_measured_time = current_measured_time
+            
+            # yield 结果
+            # 基础信息（所有模式都需要）
+            yield_dict = {
+                "ids": curr_ids,          # 测试脚本需要统计 len(ids)，所有模式都需要
+                "accept_length": accept_length, # 用于统计加速效率
+                "step": idx,              # 当前步数 (idxs)
+                # 性能统计信息（累计值）
+                "prefill_time": prefill_time,
+                "total_medusa_heads_time": total_medusa_heads_time,
+                "total_tree_decoding_time": total_tree_decoding_time,
+                "total_generate_candidates_time": total_generate_candidates_time,
+                "total_evaluate_posterior_time": total_evaluate_posterior_time,
+                "total_update_inputs_time": total_update_inputs_time,
+                "total_step_overhead_time": total_step_overhead_time,
+            }
+            
+            # 仅在非 fast 模式或 debug 模式下添加 text
+            if not fast or self._debug_mode:
+                yield_dict["text"] = text
+            
+            yield yield_dict
+            
+            # Check EOS
+            if eos_detected or (tokenizer is not None and tokenizer.eos_token_id is not None and tokenizer.eos_token_id in curr_ids):
+                break
+        
+        loop_end_time = time.time()
+        # 计算循环总时间（包括所有未统计的开销）
+        # 注意：这个时间会在外部（test_medusa_benchmark.py）与generation_time对比来计算剩余时间
         
         # 生成结束后清理状态，防止内存泄漏
         reset_medusa_mode(self)

@@ -58,6 +58,10 @@ class KVCache:
         
         self.data[tuple(slices)] = tgt
         
+        # === [CRITICAL] 切断历史，防止图无限增长 ===
+        # 在写入操作后切断梯度流，避免计算图无限增长
+        self.data = self.data.stop_grad()
+        
         # 使用正确的方式更新长度
         self._set_current_length(prev_length + tgt_len)
 
@@ -76,6 +80,10 @@ class KVCache:
         slices[dim] = slice(start_idx, end_idx)
         self.data[tuple(slices)] = tensor
         
+        # === [CRITICAL] 切断历史，防止图无限增长 ===
+        # 在写入操作后切断梯度流，避免计算图无限增长
+        self.data = self.data.stop_grad()
+        
         # 使用正确的方式更新长度
         self._set_current_length(end_idx)
         
@@ -85,58 +93,32 @@ class KVCache:
         
         return self.data[tuple(return_slices)]
 
-    def gather_and_reset(self, indices: jt.Var, prev_len: int, dim: int = 2):
+    def gather_and_reset(self, read_indices: jt.Var, start_pos: int, end_pos: int):
         """
-        核心优化函数：
-        1. 从 cache 的 [prev_len:] 区域（即刚刚 Tree Decoding 写入的区域）中，
-           根据 indices 挑选出被接受的 KV。
-        2. 将这些挑选出的 KV 搬运到 prev_len 开始的连续位置。
-        3. 将 Cache 的长度重置为 prev_len + accepted_len。
-
+        极简版 Gather & Reset（性能优化版本）
+        
         Args:
-            indices: 相对于 tree window 的索引，shape [Accepted_Len]
-            prev_len: Tree Decoding 前的长度（基准位置）
-            dim: 操作的维度，默认是 2 (SeqLen)
+            read_indices: 预先计算好的绝对索引 [Accepted_Len]，已经是绝对位置
+            start_pos: 写入起始位置 (prev_len)
+            end_pos: 写入结束位置 (prev_len + accepted_len)
         """
-        if dim != 2:
-            raise NotImplementedError("Only support dim=2 for now")
+        dim = 2  # 固定为 seq_len 维度
         
-        # [FIX 1] 确保 indices 是正确的一维 Long Tensor
-        if not isinstance(indices, jt.Var):
-            indices = jt.array(indices, dtype="int64")
-        indices = indices.flatten().int64()
+        # 1. Gather (Clone is needed to avoid self-overwrite issues in Jittor)
+        # 此时 read_indices 已经是计算好的绝对位置
+        selected_kv = self.data[:, :, read_indices, :].clone() 
         
-        # [FIX 2] 确保 prev_len 是 Python int
-        # Jittor 的 slice 如果参数是 Var，行为可能不可预测
-        if hasattr(prev_len, "item"):
-            prev_len = int(prev_len.item())
-        else:
-            prev_len = int(prev_len)
-        
-        # 1. 获取源数据 (Gather)
-        # read_indices: [Accepted_Len]
-        read_indices = indices + prev_len
-        
-        # [FIX 3] 显式同步以获取真实的形状，防止动态图错误
-        # 虽然会有微小开销，但为了稳定性必须这么做，且 selected_kv 通常很小
-        selected_kv = self.data[:, :, read_indices, :].clone()  # [Batch, Heads, Accepted_Len, Dim]
-        
-        # 2. 写入数据 (Scatter / Copy)
-        # 获取真实的待写入长度
-        tgt_len = int(selected_kv.shape[dim])  # 这应该等于 indices.shape[0]
-        
-        # 构造 Python int 类型的切片
-        start = prev_len
-        end = prev_len + tgt_len
-        
-        slices = [slice(None)] * len(self.data.shape)
-        slices[dim] = slice(start, end)
-        
-        # 执行赋值
+        # 2. Scatter / Update
+        slices = [slice(None)] * 4
+        slices[dim] = slice(start_pos, end_pos)
         self.data[tuple(slices)] = selected_kv
         
-        # 3. 重置长度
-        self._set_current_length(end)
+        # === [CRITICAL] 切断历史，防止图无限增长 ===
+        # 在写入操作后切断梯度流，避免计算图无限增长
+        self.data = self.data.stop_grad()
+        
+        # 3. Reset Length
+        self._length_array[self._length_idx] = end_pos
 
 
 def initialize_past_key_values(model):
