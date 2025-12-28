@@ -1,5 +1,6 @@
 import jittor as jt
 from jittor import nn
+import numpy as np
 
 TOPK = 10 
 
@@ -245,14 +246,20 @@ def generate_candidates(medusa_logits, logits, tree_indices, retrieve_indices,
         base_logits = logits[:, -1].clone()
         medusa_logits_last = medusa_logits[:, 0, -1].clone()
         
-        # Suppress BOS token (usually token 1) and EOS token (usually token 2)
-        # Also suppress PAD token (usually token 0) if any
-        special_tokens = [0, 1, 2]  # <unk>, <s>, </s>
+        # Suppress BOS token (usually token 1) and PAD token (usually token 0)
+        # 注意：不完全抑制EOS token，允许它在适当时候被生成以自然结束生成
+        # 只抑制BOS和PAD，因为它们在生成过程中不应该出现
+        special_tokens_to_suppress = [0, 1]  # <unk>, <s>
         neg_inf = jt.float32(-1e9)  # Use large negative instead of -inf for numerical stability
         
-        for tok_id in special_tokens:
+        for tok_id in special_tokens_to_suppress:
             base_logits[:, tok_id] = neg_inf
             medusa_logits_last[:, tok_id] = neg_inf
+        
+        # 对于EOS token，不完全抑制，而是降低其概率（允许在适当时候生成）
+        # 这样可以允许模型在完成回答后自然结束
+        # EOS token通常是2，但为了安全，我们检查一下
+        # 实际上，如果EOS概率足够高，typical acceptance会接受它
     else:
         base_logits = logits[:, -1]
         medusa_logits_last = medusa_logits[:, 0, -1]
@@ -283,11 +290,18 @@ def generate_candidates(medusa_logits, logits, tree_indices, retrieve_indices,
     candidates = jt.concat([candidates_logit, candidates_medusa_logits.view(-1)], dim=-1)
 
     # 4. Map to Tree
-    tree_candidates = candidates[tree_indices]
+    # [FIX] 添加边界检查，确保 tree_indices 不超出 candidates 的范围
+    # 这可以防止当 medusa_num_heads 与 medusa_choices 不匹配时出现索引越界
+    max_candidate_idx = candidates.shape[0] - 1
+    tree_indices_clamped = jt.clamp(tree_indices, 0, max_candidate_idx)
+    tree_candidates = candidates[tree_indices_clamped]
 
     # 5. Extend and Retrieve Cartesian
     tree_candidates_ext = jt.concat([tree_candidates, jt.zeros((1,), dtype="int64")], dim=0)
-    cart_candidates = tree_candidates_ext[retrieve_indices]
+    # [FIX] 添加边界检查，确保 retrieve_indices 不超出 tree_candidates_ext 的范围
+    max_tree_idx = tree_candidates_ext.shape[0] - 1
+    retrieve_indices_clamped = jt.clamp(retrieve_indices, 0, max_tree_idx)
+    cart_candidates = tree_candidates_ext[retrieve_indices_clamped]
     
     # Unsqueeze for batch dim
     tree_candidates = tree_candidates.unsqueeze(0)
@@ -331,17 +345,25 @@ def tree_decoding(
     # retrieve_indices -> [N, L] (indices into Seq_Len_Tree)
     # result -> [N, L, Vocab]
     
-    logits = tree_logits[0][retrieve_indices]
+    # 保存原始 logits（用于后续的 gather_and_reset 和采样）
+    original_tree_logits = tree_logits
+    original_tree_medusa_logits = tree_medusa_logits
+    
+    # [FIX] 添加边界检查，确保 retrieve_indices 不超出 tree_logits 的范围
+    max_seq_idx = tree_logits.shape[1] - 1
+    retrieve_indices_clamped = jt.clamp(retrieve_indices, 0, max_seq_idx)
+    logits = tree_logits[0][retrieve_indices_clamped]
     
     # medusa_logits: [Heads, Batch, Seq, Vocab] -> [Heads, Seq, Vocab]
-    medusa_logits = tree_medusa_logits[:, 0][:, retrieve_indices] # [Heads, N, L, Vocab]
+    medusa_logits = tree_medusa_logits[:, 0][:, retrieve_indices_clamped] # [Heads, N, L, Vocab]
     
-    return medusa_logits, logits, outputs
+    return medusa_logits, logits, original_tree_logits, original_tree_medusa_logits, outputs
 
 
 def evaluate_posterior(
     logits, candidates, temperature, posterior_threshold=0.3, posterior_alpha=0.09, 
-    top_p=0.8, sampling='typical', fast=True
+    top_p=0.8, sampling='typical', fast=True, tokenizer=None, return_debug_info=False,
+    medusa_choices=None, current_sequence=None
 ):
     # Greedy
     if temperature == 0:
@@ -370,11 +392,385 @@ def evaluate_posterior(
         else:
             # best_candidate = jt.topk(candidates_accept_length).int64() # argmax here should be fine on 1D var
             best_candidate = jt.argmax(candidates_accept_length, dim=0)[0]
+        
+        # 准备调试信息（greedy模式）
+        debug_info = None
+        if return_debug_info:
+            base_token = int(candidates[0, 0].item()) if candidates.shape[0] > 0 else None
             
-        return best_candidate, accept_length
+            # 添加当前序列信息
+            current_sequence_info = None
+            if current_sequence is not None and tokenizer is not None:
+                try:
+                    # current_sequence是jt.Var，需要转换为numpy
+                    if hasattr(current_sequence, 'numpy'):
+                        seq_ids = current_sequence.numpy().tolist()
+                    else:
+                        seq_ids = current_sequence
+                    
+                    # 解码当前序列（显示最后20个token，避免太长）
+                    if len(seq_ids) > 20:
+                        seq_ids_display = seq_ids[-20:]
+                        seq_text = tokenizer.decode(seq_ids_display, skip_special_tokens=False)
+                        current_sequence_info = {
+                            'token_ids': seq_ids,
+                            'display_tokens': seq_ids_display,  # 最后20个token用于显示
+                            'display_text': seq_text,
+                            'total_length': len(seq_ids)
+                        }
+                    else:
+                        seq_text = tokenizer.decode(seq_ids, skip_special_tokens=False)
+                        current_sequence_info = {
+                            'token_ids': seq_ids,
+                            'display_tokens': seq_ids,
+                            'display_text': seq_text,
+                            'total_length': len(seq_ids)
+                        }
+                except Exception as e:
+                    # 如果解码失败，至少保存token IDs
+                    if hasattr(current_sequence, 'numpy'):
+                        seq_ids = current_sequence.numpy().tolist()
+                    else:
+                        seq_ids = current_sequence
+                    current_sequence_info = {
+                        'token_ids': seq_ids,
+                        'display_tokens': seq_ids[-20:] if len(seq_ids) > 20 else seq_ids,
+                        'display_text': f"<解码失败: {str(e)}>",
+                        'total_length': len(seq_ids)
+                    }
+            
+            # 添加base model预测的token信息
+            base_token_info = None
+            if base_token is not None and tokenizer is not None:
+                try:
+                    base_token_text = tokenizer.decode([base_token], skip_special_tokens=False)
+                    base_token_info = {
+                        'token_id': base_token,
+                        'token_text': base_token_text
+                    }
+                except:
+                    base_token_info = {
+                        'token_id': base_token,
+                        'token_text': f"<token_{base_token}>"
+                    }
+            
+            medusa_tree = []
+            posterior_mask_np = posterior_mask.numpy()  # 转换为numpy数组
+            for cand_idx in range(min(candidates.shape[0], 20)):
+                path_tokens = candidates[cand_idx, :].numpy().tolist()
+                if cand_idx < posterior_mask_np.shape[0]:
+                    # posterior_mask是int类型（0或1），转换为bool
+                    accept_status = [bool(x) for x in posterior_mask_np[cand_idx, :].tolist()]
+                    full_accept_status = [True] + accept_status  # 第一个token（base model）总是被接受
+                else:
+                    full_accept_status = [True] * len(path_tokens)
+                medusa_tree.append({
+                    'path_idx': cand_idx,
+                    'tokens': path_tokens,
+                    'accept_status': full_accept_status,
+                    'accept_length': int(candidates_accept_length[cand_idx].item()) if cand_idx < candidates_accept_length.shape[0] else 0
+                })
+            debug_info = {
+                'base_token': base_token,
+                'base_token_info': base_token_info,
+                'current_sequence_info': current_sequence_info,
+                'medusa_tree': medusa_tree,
+                'best_candidate': int(best_candidate.item()),
+                'accept_length': accept_length
+            }
+        
+        if return_debug_info:
+            return best_candidate, accept_length, debug_info
+        else:
+            return best_candidate, accept_length
 
-    # Recursive call for other samplings (Placeholder for now)
-    return evaluate_posterior(logits, candidates, 0, posterior_threshold, posterior_alpha, top_p, sampling, fast)
+    # Typical Acceptance 实现
+    if sampling == 'typical':
+        if fast:
+            # Fast mode: 直接计算后验概率和阈值
+            # logits shape: [Num_Cands, Max_Len, Vocab]
+            # candidates shape: [Num_Cands, Max_Len]
+            
+            # 计算后验概率 (只考虑候选序列的位置，不包括最后一个)
+            posterior_prob = nn.softmax(logits[:, :-1] / temperature, dim=-1)  # [Num_Cands, Max_Len-1, Vocab]
+            
+            # 获取候选token的概率
+            # candidates[:, 1:] shape: [Num_Cands, Max_Len-1]
+            candidates_idx = candidates[:, 1:].unsqueeze(-1)  # [Num_Cands, Max_Len-1, 1]
+            
+            # [FIX] 添加边界检查，确保 candidates_idx 中的 token ID 在有效范围内
+            # 这可以防止 CUDA 非法地址访问错误
+            vocab_size = posterior_prob.shape[-1]
+            candidates_idx = jt.clamp(candidates_idx, 0, vocab_size - 1)
+            
+            candidates_prob = jt.gather(
+                posterior_prob, dim=-1, index=candidates_idx
+            ).squeeze(-1)  # [Num_Cands, Max_Len-1]
+            
+            # 计算熵: H = -sum(p * log(p))
+            posterior_entropy = -jt.sum(
+                posterior_prob * jt.log(posterior_prob + 1e-5), dim=-1
+            )  # [Num_Cands, Max_Len-1]
+            
+            # 计算阈值: min(epsilon, delta * exp(-H))
+            # posterior_threshold 对应 epsilon, posterior_alpha 对应 delta
+            threshold = jt.minimum(
+                jt.ones_like(posterior_entropy) * posterior_threshold,
+                jt.exp(-posterior_entropy) * posterior_alpha,
+            )  # [Num_Cands, Max_Len-1]
+            
+            # 判断哪些候选token被接受: p > threshold
+            posterior_mask = candidates_prob > threshold  # [Num_Cands, Max_Len-1]
+            
+            # 处理EOS token：如果某个token是EOS且被接受，则后续token不应该被接受
+            # 这是Typical Acceptance的正确逻辑：一旦遇到EOS，应该停止接受后续token
+            # 这样确保选择的路径在EOS处停止，而不是继续接受EOS之后的token
+            if tokenizer is not None and tokenizer.eos_token_id is not None:
+                eos_token_id = tokenizer.eos_token_id
+                # candidates[:, 1:] 是medusa预测的token（不包括第一个base model预测的token）
+                candidates_tokens = candidates[:, 1:]  # [Num_Cands, Max_Len-1]
+                
+                # 找到EOS token的位置
+                eos_mask = (candidates_tokens == eos_token_id)  # [Num_Cands, Max_Len-1]
+                
+                # 对于每条路径，如果EOS被接受，则后续token不应该被接受
+                # 使用向量化操作：找到每条路径中第一个被接受的EOS的位置
+                eos_and_accepted = eos_mask & posterior_mask  # [Num_Cands, Max_Len-1]
+                
+                # 对于每条路径，找到第一个被接受的EOS的位置
+                # 使用cumsum找到第一个True的位置
+                eos_and_accepted_int = eos_and_accepted.int()
+                eos_cumsum = jt.cumsum(eos_and_accepted_int, dim=1)  # [Num_Cands, Max_Len-1]
+                
+                # 如果cumsum > 0，说明在这个位置或之前有EOS被接受
+                # 对于EOS之后的位置，posterior_mask应该设为False
+                has_eos_before = (eos_cumsum > 0)  # [Num_Cands, Max_Len-1]
+                
+                # 如果某个位置之前有EOS被接受，则这个位置不应该被接受
+                # 但是，EOS本身应该被接受（如果它的概率满足条件）
+                # 所以我们需要：如果某个位置之前（不包括自己）有EOS被接受，则这个位置不应该被接受
+                # 使用shift操作：检查前一个位置是否有EOS被接受
+                # 更简单：如果cumsum > 0 且当前位置不是EOS，则不应该被接受
+                # 或者：如果cumsum > 0 且当前位置是EOS，则应该被接受（如果概率满足条件）
+                # 实际上，我们需要：如果某个位置之前有EOS被接受，则这个位置不应该被接受
+                
+                # 使用更简单的方法：对于每条路径，找到第一个被接受的EOS的位置
+                # 然后，从EOS之后的所有位置都不应该被接受
+                # 由于Jittor的限制，我们使用numpy来处理
+                eos_and_accepted_np = eos_and_accepted.numpy()
+                posterior_mask_np = posterior_mask.numpy()
+                
+                for cand_idx in range(eos_and_accepted_np.shape[0]):
+                    for pos_idx in range(eos_and_accepted_np.shape[1]):
+                        # 如果这个位置是EOS且被接受
+                        if eos_and_accepted_np[cand_idx, pos_idx]:
+                            # 则后续所有位置都不应该被接受
+                            posterior_mask_np[cand_idx, pos_idx+1:] = False
+                            break  # 找到第一个EOS就停止
+                
+                # 转换回Jittor变量
+                posterior_mask = jt.array(posterior_mask_np)
+            
+            # 计算每个候选的接受长度（连续接受的长度）
+            # cumprod 计算累积乘积，如果中间有False，后续都是0
+            posterior_mask_int = posterior_mask.int()
+            candidates_accept_length = jt.cumprod(posterior_mask_int, dim=1).sum(dim=1)  # [Num_Cands]
+            
+            # 选择最佳候选
+            accept_length = int(candidates_accept_length.max().item())
+            
+            if accept_length == 0:
+                # 如果没有候选被接受，选择第一个
+                best_candidate = jt.array(0).int64()
+            else:
+                # 找到所有达到最大接受长度的候选
+                max_accept_length = candidates_accept_length.max()
+                best_candidates_mask = (candidates_accept_length == max_accept_length)
+                
+                # 获取所有最佳候选的索引
+                # 使用 numpy 转换来获取索引（Jittor 的 where 可能不支持这种用法）
+                best_candidates_mask_np = best_candidates_mask.numpy()
+                best_candidates_indices_np = np.where(best_candidates_mask_np)[0]
+                
+                if len(best_candidates_indices_np) == 0:
+                    best_candidate = jt.array(0).int64()
+                elif len(best_candidates_indices_np) == 1:
+                    best_candidate = jt.array(best_candidates_indices_np[0]).int64()
+                else:
+                    # 如果有多个候选，根据似然选择最佳的一个
+                    # 似然 = sum(log(p)) for accepted tokens
+                    # 注意：需要处理 candidates_prob 可能为0的情况
+                    best_candidates_indices = jt.array(best_candidates_indices_np).int64()
+                    likelihood = jt.sum(
+                        jt.log(candidates_prob[best_candidates_indices, :accept_length] + 1e-10), 
+                        dim=-1
+                    )  # [num_best_candidates]
+                    best_idx = jt.argmax(likelihood, dim=0)[0]
+                    best_candidate = best_candidates_indices[best_idx]
+            
+            # 准备调试信息
+            debug_info = None
+            if return_debug_info:
+                # 获取base model预测的token（第一个token）
+                base_token = int(candidates[0, 0].item()) if candidates.shape[0] > 0 else None
+                
+                # 添加当前序列信息
+                current_sequence_info = None
+                if current_sequence is not None and tokenizer is not None:
+                    try:
+                        # current_sequence是jt.Var，需要转换为numpy
+                        if hasattr(current_sequence, 'numpy'):
+                            seq_ids = current_sequence.numpy().tolist()
+                        else:
+                            seq_ids = current_sequence
+                        
+                        # 解码当前序列（显示最后20个token，避免太长）
+                        if len(seq_ids) > 20:
+                            seq_ids_display = seq_ids[-20:]
+                            seq_text = tokenizer.decode(seq_ids_display, skip_special_tokens=False)
+                            current_sequence_info = {
+                                'token_ids': seq_ids,
+                                'display_tokens': seq_ids_display,  # 最后20个token用于显示
+                                'display_text': seq_text,
+                                'total_length': len(seq_ids)
+                            }
+                        else:
+                            seq_text = tokenizer.decode(seq_ids, skip_special_tokens=False)
+                            current_sequence_info = {
+                                'token_ids': seq_ids,
+                                'display_tokens': seq_ids,
+                                'display_text': seq_text,
+                                'total_length': len(seq_ids)
+                            }
+                    except Exception as e:
+                        # 如果解码失败，至少保存token IDs
+                        if hasattr(current_sequence, 'numpy'):
+                            seq_ids = current_sequence.numpy().tolist()
+                        else:
+                            seq_ids = current_sequence
+                        current_sequence_info = {
+                            'token_ids': seq_ids,
+                            'display_tokens': seq_ids[-20:] if len(seq_ids) > 20 else seq_ids,
+                            'display_text': f"<解码失败: {str(e)}>",
+                            'total_length': len(seq_ids)
+                        }
+                
+                # 添加base model预测的token信息
+                base_token_info = None
+                if base_token is not None and tokenizer is not None:
+                    try:
+                        base_token_text = tokenizer.decode([base_token], skip_special_tokens=False)
+                        base_token_info = {
+                            'token_id': base_token,
+                            'token_text': base_token_text
+                        }
+                    except:
+                        base_token_info = {
+                            'token_id': base_token,
+                            'token_text': f"<token_{base_token}>"
+                        }
+                
+                # 获取medusa heads预测的token树
+                # candidates shape: [Num_Cands, Max_Len]
+                # 第一个token是base model预测的，后面的token是medusa预测的
+                medusa_tree = []
+                for cand_idx in range(min(candidates.shape[0], 20)):  # 限制显示前20条路径
+                    path_tokens = candidates[cand_idx, :].numpy().tolist()
+                    # 获取这条路径的接受情况
+                    if cand_idx < posterior_mask.shape[0]:
+                        accept_status = posterior_mask[cand_idx, :].numpy().tolist()
+                        # 添加base token的接受状态（总是True）
+                        full_accept_status = [True] + accept_status
+                    else:
+                        full_accept_status = [True] * len(path_tokens)
+                    
+                    medusa_tree.append({
+                        'path_idx': cand_idx,
+                        'tokens': path_tokens,
+                        'accept_status': full_accept_status,
+                        'accept_length': int(candidates_accept_length[cand_idx].item()) if cand_idx < candidates_accept_length.shape[0] else 0
+                    })
+                
+                # 添加第一个medusa head的调试信息
+                first_head_debug = None
+                if medusa_choices is not None and len(medusa_choices) > 0:
+                    # 找到第一个medusa head对应的路径
+                    # 第一个medusa head对应medusa_choices中第一个元素（通常是[0]）
+                    first_medusa_choice = medusa_choices[0]  # 通常是[0]
+                    
+                    # 在candidates中找到所有第一个位置是第一个medusa head预测的token的路径
+                    # candidates[:, 1] 是所有候选路径中第一个medusa预测的token（索引1是第一个medusa位置）
+                    # 从generate_candidates的逻辑来看：
+                    # candidates = [base_token, medusa_head_0_token_0, medusa_head_0_token_1, ..., medusa_head_0_token_k-1, medusa_head_1_token_0, ...]
+                    # 然后通过tree_indices和retrieve_indices映射到树结构
+                    # 所以第一个medusa head的token在candidates中的原始位置是1到1+TOPK-1
+                    # 但是，由于tree_indices和retrieve_indices的映射，在最终的cart_candidates中，位置可能不同
+                    
+                    # 获取所有候选路径中第一个medusa位置的token（索引1）
+                    # 这些token就是第一个medusa head预测的token（虽然可能重复，因为不同的路径可能使用相同的token）
+                    first_medusa_tokens = candidates[:, 1].numpy()  # [Num_Cands]
+                    
+                    # 找到所有不同的第一个medusa head的token
+                    unique_first_medusa_tokens = list(set(first_medusa_tokens.tolist()))
+                    unique_first_medusa_tokens = sorted(unique_first_medusa_tokens)[:10]  # 限制显示前10个
+                    
+                    # 对于每个第一个medusa head的token，找到对应的路径并计算p_original和阈值
+                    first_head_tokens_info = []
+                    for token_id in unique_first_medusa_tokens:
+                        # 找到所有第一个位置是这个token的路径
+                        paths_with_token = []
+                        for cand_idx in range(candidates.shape[0]):
+                            if candidates[cand_idx, 1].item() == token_id:
+                                paths_with_token.append(cand_idx)
+                        
+                        if len(paths_with_token) > 0:
+                            # 使用第一个路径来计算p_original和阈值
+                            cand_idx = paths_with_token[0]
+                            if cand_idx < candidates_prob.shape[0] and candidates_prob.shape[1] > 0:
+                                # 第一个medusa head的token对应candidates_prob中的索引0（第一个medusa位置）
+                                p_original = float(candidates_prob[cand_idx, 0].item())
+                                threshold_val = float(threshold[cand_idx, 0].item())
+                                is_accepted = bool(posterior_mask[cand_idx, 0].item()) if cand_idx < posterior_mask.shape[0] and posterior_mask.shape[1] > 0 else False
+                                
+                                first_head_tokens_info.append({
+                                    'token_id': int(token_id),
+                                    'p_original': p_original,
+                                    'threshold': threshold_val,
+                                    'is_accepted': is_accepted
+                                })
+                    
+                    first_head_debug = {
+                        'tokens': first_head_tokens_info
+                    }
+                
+                debug_info = {
+                    'base_token': base_token,
+                    'base_token_info': base_token_info,
+                    'current_sequence_info': current_sequence_info,
+                    'medusa_tree': medusa_tree,
+                    'best_candidate': int(best_candidate.item()),
+                    'accept_length': accept_length,
+                    'candidates_prob': candidates_prob.numpy().tolist() if 'candidates_prob' in locals() else None,
+                    'threshold': threshold.numpy().tolist() if 'threshold' in locals() else None,
+                    'first_head_debug': first_head_debug
+                }
+            
+            if return_debug_info:
+                return best_candidate, accept_length, debug_info
+            else:
+                return best_candidate, accept_length
+        else:
+            # Non-fast mode: 使用采样方式（暂时回退到fast模式）
+            # TODO: 实现完整的 non-fast typical acceptance
+            return evaluate_posterior(logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p, 'typical', True, tokenizer, return_debug_info)
+    
+    # Nucleus sampling (暂时回退到greedy)
+    if sampling == 'nucleus':
+        # TODO: 实现 nucleus sampling
+        return evaluate_posterior(logits, candidates, 0, posterior_threshold, posterior_alpha, top_p, sampling, fast, tokenizer, return_debug_info)
+    
+    # 默认回退到greedy
+    return evaluate_posterior(logits, candidates, 0, posterior_threshold, posterior_alpha, top_p, sampling, fast, tokenizer, return_debug_info)
 
 
 def update_inference_inputs(
@@ -383,76 +779,80 @@ def update_inference_inputs(
     best_candidate,
     accept_length,
     retrieve_indices,
-    outputs,
-    logits,
-    medusa_logits,
+    tree_logits,           # 传入树计算出的 Logits [Batch, Tree_Size, Vocab]
+    tree_medusa_logits,    # 传入树计算出的 Medusa Logits [Heads, Batch, Tree_Size, Vocab]
+    tree_outputs,          # 传入 Tree Decoding 的 outputs（包含 hidden_states）
     new_token,
-    past_key_values_data,
-    current_length_data,
+    past_key_values,       # 传入 KVCache 对象列表
+    prev_len_before_tree,  # Tree Decoding 前的长度
 ):
     """
-    Update state.
+    更新推理状态：Gather KV Cache，提取最后一个被接受 token 的 hidden state。
+    
+    核心优化：
+    1. 从 Tree Decoding 产生的 KV Cache 中 Gather 被接受的路径
+    2. 从 tree_outputs 中提取最后一个被接受 token 的 hidden state，用于下一步的 medusa heads 预测
+    3. 不再需要 Correction Step Forward，因为 hidden state 已经在 tree decoding 中计算好了
     """
-    prev_input_len = input_ids.shape[1]
-    
-    # 1. Map Best Candidate -> Tree Indices -> Original Indices
-    # retrieve_indices: [Num_Cands, Max_Len]
-    # best_candidate is scalar index
-    
-    # Python int conversion for slicing
+    # 1. 解析被接受的路径
     bc_idx = best_candidate.item()
-    al_val = int(accept_length) # passed as int/scalar
+    al_val = int(accept_length)
     
-    # select_indices = retrieve_indices[bc_idx, :al_val + 1] + prev_input_len
-    select_indices = retrieve_indices[bc_idx, :al_val + 1] + prev_input_len
+    # [CRITICAL] Gather 所有被接受的节点，包括 Index 0 (Base Model Prediction)
+    # retrieve_indices[bc_idx] 包含了 [0, 1, 4...] 这样的展平索引
+    # 我们需要把这些位置的 KV 全部整理到 Cache 的末尾
+    accepted_tree_indices = retrieve_indices[bc_idx, :al_val + 1]
     
-    # 2. Append tokens to input_ids
-    # candidates shape: [Num_Cands, Max_Len]
-    # We need to select candidates[bc_idx, :al_val+1] and add batch dim
-    new_tokens = candidates[bc_idx:bc_idx+1, :al_val + 1]  # [1, al_val+1]
-    input_ids = jt.concat([input_ids, new_tokens], dim=-1)
+    # 转换为 Jittor Var
+    if not isinstance(accepted_tree_indices, jt.Var):
+        accepted_tree_indices = jt.array(accepted_tree_indices, dtype="int64")
+    else:
+        accepted_tree_indices = accepted_tree_indices.int64()
     
-    # 3. Update KV Cache (The trickiest part)
-    # past_key_values_data: [Layers*2, Batch, Heads, MaxPos, Dim]
-    # We want to perform:
-    # dst = data[..., prev_len : prev_len + len, :]
-    # src = data[..., select_indices, :]
-    # dst[:] = src
+    # 确保 prev_len 是 int
+    if hasattr(prev_len_before_tree, "item"):
+        prev_len_int = int(prev_len_before_tree.item())
+    else:
+        prev_len_int = int(prev_len_before_tree)
     
-    # 获取源数据 (Advanced Indexing on dim -2)
-    # select_indices is [Len]
-    # Jittor indexing: data[..., select_indices, :]
-    tgt = past_key_values_data[..., select_indices, :]
+    # 2. 整理 KV Cache (Gather & Reset)
+    # 无论 al_val 是多少，我们都执行 gather。
+    # 如果 al_val=0，我们 gather [0] 到 prev_len。这等价于确认第一个 token 并重置长度。
+    for layer_caches in past_key_values:
+        for cache in layer_caches:  # K and V
+            cache.gather_and_reset(accepted_tree_indices, prev_len_int)
     
-    # 写入目标位置
-    # In Jittor, we construct slices
-    # Shape of data: [L*2, B, H, MaxPos, D]
-    # Dim -2 is MaxPos
+    # 3. 更新 input_ids (历史记录)
+    # candidates: [Num_Candidates, Max_Len]
+    accepted_tokens = candidates[bc_idx:bc_idx+1, :al_val + 1]  # [1, al_val+1]
+    input_ids = jt.concat([input_ids, accepted_tokens], dim=-1)
     
-    target_start = prev_input_len
-    target_end = prev_input_len + tgt.shape[-2]
+    # 4. 提取最后一个被接受 token 的 hidden state
+    # tree_outputs.hidden_states[-1] shape: [Batch, Tree_Size, Hidden_Size]
+    # 我们需要找到最后一个被接受节点在 tree 中的索引
+    final_accepted_node_index = retrieve_indices[bc_idx, al_val].item()
     
-    # construct slice tuple: (:, :, :, start:end, :)
-    slices = [slice(None)] * len(past_key_values_data.shape)
-    slices[-2] = slice(target_start, target_end)
+    # [FIX] 添加边界检查，防止索引超出范围
+    tree_hidden_states = tree_outputs.hidden_states[-1]  # [Batch, Tree_Size, Hidden_Size]
+    tree_size = tree_hidden_states.shape[1]
+    if final_accepted_node_index >= tree_size:
+        final_accepted_node_index = tree_size - 1
+    elif final_accepted_node_index < 0:
+        final_accepted_node_index = 0
     
-    past_key_values_data[tuple(slices)] = tgt
+    # 提取最后一个被接受 token 的 hidden state: [Batch, 1, Hidden_Size]
+    last_hidden_state = tree_hidden_states[:, final_accepted_node_index:final_accepted_node_index+1, :]
+    # 确保 hidden state 是 float32 类型，避免类型不匹配
+    last_hidden_state = last_hidden_state.float32()
     
-    # 4. Update Lengths
-    # 注意：Jittor 中 assign() 对整个数组可能不work，需要逐元素更新
-    new_length = prev_input_len + tgt.shape[-2]
-    for idx in range(current_length_data.shape[0]):
-        current_length_data[idx] = new_length
+    # 5. 提取最后一个被接受 token 的 logits（用于下一步的 medusa heads）
+    # tree_logits shape: [Batch, Tree_Size, Vocab]
+    final_logits = tree_logits[:, final_accepted_node_index:final_accepted_node_index+1, :]  # [1, 1, Vocab]
     
-    # 5. Update Logits (Return logits for the next step)
-    # logits shape: [Num_Cands, Max_Len, Vocab]
-    # We need logits[bc_idx, al_val:al_val+1, :] -> [1, Vocab] -> [1, 1, Vocab]
-    # medusa_logits shape: [Heads, Num_Cands, Max_Len, Vocab]
-    # We need medusa_logits[:, bc_idx, al_val:al_val+1, :] -> [Heads, 1, Vocab] -> [Heads, 1, 1, Vocab]
-    
-    logits = logits[bc_idx:bc_idx+1, al_val:al_val+1, :]  # [1, 1, Vocab]
-    medusa_logits = medusa_logits[:, bc_idx:bc_idx+1, al_val:al_val+1, :]  # [Heads, 1, 1, Vocab]
+    # [FIX] 检查 final_logits 是否为空
+    if final_logits.shape[1] == 0:
+        final_logits = tree_logits[:, -1:, :]  # [1, 1, Vocab]
     
     new_token += al_val + 1
     
-    return input_ids, logits, medusa_logits, new_token
+    return input_ids, last_hidden_state, final_logits, new_token

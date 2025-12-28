@@ -272,9 +272,14 @@ class MedusaModel(nn.Module):
         top_p=0.8, 
         sampling = 'typical', 
         fast = True,
-        tokenizer = None
+        tokenizer = None,
+        debug_callback = None
     ):
         assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        
+        # 设置调试模式
+        self._debug_mode = (debug_callback is not None)
+        self._debug_callback = debug_callback
         
         if medusa_choices is None:
             medusa_choices = DEFAULT_MEDUSA_CHOICES
@@ -367,8 +372,9 @@ class MedusaModel(nn.Module):
             )
 
             # (B) Tree Decoding
-            # 保存 Tree Decoding 之前的 KV Cache 长度（用于后续回滚）
-            prev_len_before_tree = input_ids.shape[1]
+            # 保存 Tree Decoding 之前的 KV Cache 长度（用于后续 gather_and_reset）
+            # 确保 prev_len_before_tree 是 Python int
+            prev_len_before_tree = int(input_ids.shape[1])
             
             # 确保 medusa_mask 被设置（tree_decoding 需要它）
             # 注意：在第一次 prefill 后，medusa_mask 已经被 initialize_medusa 设置了
@@ -376,7 +382,7 @@ class MedusaModel(nn.Module):
             if self.base_model.model.medusa_mask is None:
                 self.base_model.model.medusa_mask = medusa_buffers["medusa_attn_mask"]
             
-            tree_medusa_logits, tree_logits, tree_outputs = tree_decoding(
+            tree_medusa_logits, tree_logits, original_tree_logits, original_tree_medusa_logits, tree_outputs = tree_decoding(
                 self,
                 tree_candidates,
                 past_key_values,
@@ -386,72 +392,82 @@ class MedusaModel(nn.Module):
             )
 
             # (C) Evaluate Posterior
-            best_candidate, accept_length = evaluate_posterior(
-                tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast
-            )
+            # 检查是否需要返回调试信息（通过检查是否有debug_callback）
+            return_debug = hasattr(self, '_debug_mode') and self._debug_mode
+            # 获取当前序列（用于调试信息）
+            current_seq_for_debug = input_ids[0] if return_debug else None
+            if return_debug:
+                best_candidate, accept_length, debug_info = evaluate_posterior(
+                    tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast, tokenizer=tokenizer, return_debug_info=True, medusa_choices=medusa_choices, current_sequence=current_seq_for_debug
+                )
+                # 调用调试回调函数
+                if hasattr(self, '_debug_callback') and self._debug_callback:
+                    self._debug_callback(debug_info, idx, tokenizer)
+            else:
+                best_candidate, accept_length = evaluate_posterior(
+                    tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast, tokenizer=tokenizer, medusa_choices=medusa_choices, current_sequence=None
+                )
 
-            # (D) Update - 重构版：指针回滚 + 标准 Forward
-            # 核心思想：
-            # 1. Tree Decoding 产生的 KV 是基于树状 Position ID 的，是"脏"数据，只用于验证
-            # 2. 验证完成后，我们丢弃这些脏 KV，回滚指针
-            # 3. 用接受的 token 重新运行标准 Forward，生成正确的线性 KV Cache
+            # (D) Efficient Update (关键优化)
+            # 核心优化：从 Tree Decoding 的结果中直接提取最后一个被接受 token 的 hidden state
+            # 不再需要 Correction Step Forward，因为 hidden state 已经在 tree decoding 中计算好了
             
-            # 1. 解析被接受的 Tokens
-            bc_idx = best_candidate.item()
-            al_val = int(accept_length)
-            # accepted_tokens 包含: [t_0 (原始logits预测的), t_1, t_2... (Medusa预测并验证通过的)]
-            # candidates shape: [Num_Cands, Max_Len]
-            accepted_tokens = candidates[bc_idx:bc_idx+1, :al_val + 1]  # [1, K+1]
-            
-            # 2. 更新 input_ids
-            input_ids = jt.concat([input_ids, accepted_tokens], dim=-1)
-            
-            # 3. 修正 KV Cache 指针（回滚到 Tree Decoding 之前）
-            # Tree Decoding 在 past_key_values 里写了一堆基于树状 Position ID 的 KV，
-            # 这些 KV 的位置信息是错误的，不能直接使用。
-            # 我们需要把指针"拨回来"，拨到 Tree Decoding 之前的状态。
-            # 这样 Tree Decoding 写入的脏数据在逻辑上被"删除"了（会被后续的正确数据覆盖）。
-            for i in range(current_length_data.shape[0]):
-                current_length_data[i] = prev_len_before_tree
-            
-            # 4. 增量 Forward (Correction Step)
-            # 将 accepted_tokens 再次输入模型，使用标准的线性 Position ID。
-            # 这次 Forward 会：
-            # a. 用正确的线性 Position ID 计算 accepted_tokens 的 KV，并写入 Cache（覆盖掉 Tree Decoding 的脏数据）
-            # b. 计算最后一个 Token 的 Logits，用于下一轮生成
-            # c. 同时计算 Medusa Head 的 logits
-            
-            # 临时清除 medusa_mask，确保走标准 Causal Mask
-            old_mask = self.base_model.model.medusa_mask
-            self.base_model.model.medusa_mask = None
-            
-            # 执行标准 Forward（medusa_forward=True 以计算 Medusa Heads）
-            # 注意：这里传入的 past_key_values 的指针已经被回滚到 prev_len_before_tree
-            # 所以 Forward 会从 prev_len_before_tree 位置开始写入新的 KV
-            correction_medusa_logits, correction_outputs, correction_logits = self(
-                input_ids=accepted_tokens,
-                past_key_values=past_key_values,
-                output_orig=True,
-                medusa_forward=True  # 开启以计算 Medusa Heads
+            # 调用新的 update_inference_inputs，返回 last_hidden_state 用于下一步的 medusa heads 预测
+            input_ids, last_hidden_state, logits, new_token = update_inference_inputs(
+                input_ids=input_ids,
+                candidates=candidates,
+                best_candidate=best_candidate,
+                accept_length=accept_length,
+                retrieve_indices=medusa_buffers["retrieve_indices"],
+                tree_logits=original_tree_logits,        # 传入原始 tree_logits [Batch, Tree_Size, Vocab]
+                tree_medusa_logits=original_tree_medusa_logits, # 传入原始 tree_medusa_logits [Heads, Batch, Tree_Size, Vocab]
+                tree_outputs=tree_outputs,               # 传入 tree_outputs 以提取 hidden_states
+                new_token=new_token,
+                past_key_values=past_key_values,         # 传入对象列表以进行 Gather
+                prev_len_before_tree=prev_len_before_tree  # 传入基准长度
             )
             
-            # 恢复 mask（虽然下一轮 initialize_medusa 会重新设置，但保持状态一致）
-            self.base_model.model.medusa_mask = old_mask
+            # 从 last_hidden_state 计算 medusa_logits（用于下一步的 generate_candidates）
+            # last_hidden_state shape: [Batch, 1, Hidden_Size]
+            # 这里直接使用 medusa heads 计算 logits，不需要再次 forward
+            # medusa_head 期望的输入形状是 [Batch, Seq_Len, Hidden_Size]，所以直接使用 last_hidden_state
+            hs = last_hidden_state  # [Batch, 1, Hidden_Size]，已经是 float32 类型
             
-            # 5. 更新 logits 和 medusa_logits（用于下一轮 generate_candidates）
-            # correction_logits shape: [1, K+1, Vocab]
-            # 我们只需要最后一个位置的 logits: [1, 1, Vocab]
-            logits = correction_logits[:, -1:, :]  # [1, 1, Vocab]
+            # 计算 medusa_logits
+            medusa_logits_list = []
+            for i in range(self.medusa_num_heads):
+                medusa_logits_list.append(self.medusa_head[i](hs))
+            medusa_logits = jt.stack(medusa_logits_list, dim=0)  # [Heads, Batch, 1, Vocab]
             
-            # correction_medusa_logits shape: [Heads, 1, K+1, Vocab]
-            # 我们只需要最后一个位置: [Heads, 1, 1, Vocab]
-            medusa_logits = correction_medusa_logits[:, :, -1:, :]  # [Heads, 1, 1, Vocab]
+            # logits 已经由 update_inference_inputs 从 tree_logits 中提取
+            # logits shape: [Batch, 1, Vocab]
             
-            # 6. 更新 token 计数
-            new_token += al_val + 1
-
+            # 检查 EOS token
+            eos_detected = False
+            if tokenizer is not None and tokenizer.eos_token_id is not None:
+                # 检查 accepted_tokens 中是否包含 EOS
+                # 注意：candidates 已经在 update_inference_inputs 中被使用并更新到 input_ids 中
+                # 我们可以直接从 input_ids 中检查最后一个被接受的 token 是否是 EOS
+                # 或者通过检查当前 input_ids 的最后一个 token
+                try:
+                    # 从 input_ids 的最后一个位置检查 EOS（更安全，因为 input_ids 已经被更新）
+                    last_token_id = int(input_ids[0, -1].item())
+                    if last_token_id == tokenizer.eos_token_id:
+                        eos_detected = True
+                except:
+                    # 如果上面的方法失败，尝试从 candidates 中获取（需要确保类型正确）
+                    bc_idx = best_candidate.item() if hasattr(best_candidate, 'item') else int(best_candidate)
+                    al_val = int(accept_length)
+                    # 使用 detach 和 stop_grad 确保 candidates 是独立的
+                    accepted_tokens = candidates[bc_idx:bc_idx+1, :al_val + 1].detach().int64()  # [1, al_val+1]
+                    accepted_tokens.sync()  # 确保计算完成
+                    accepted_tokens_np = accepted_tokens.numpy().flatten()
+                    if tokenizer.eos_token_id in accepted_tokens_np:
+                        eos_detected = True
+            
             # 测试脚本需要: step, accept_length, 和 ids
             # 获取所有新生成的 ids (转为 list)
+            # 注意：input_ids 已经在 update_inference_inputs 中更新了
             curr_ids = input_ids[0, input_len:].numpy().tolist()
             
             if tokenizer is not None:
@@ -465,8 +481,8 @@ class MedusaModel(nn.Module):
                     "step": idx               # 当前步数 (idxs)
                 }
                 
-                # Check EOS
-                if tokenizer.eos_token_id in curr_ids:
+                # Check EOS (如果之前已经检测到EOS，这里也会break)
+                if eos_detected or (tokenizer.eos_token_id is not None and tokenizer.eos_token_id in curr_ids):
                     break
             else:
                 # 即使没有 tokenizer，也返回结构化数据

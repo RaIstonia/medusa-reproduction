@@ -265,6 +265,15 @@ class LlamaAttention(nn.Module):
                 value_states = jt.concat([past_key_value[1], value_states], dim=2)
                 past_key_value = (key_states, value_states) if use_cache else None
 
+        # 保存用于返回的 present_key_value（在 repeat_kv 之前）
+        # 注意：如果 past_key_value 是 None 且 use_cache 是 True，需要返回当前的 key_states 和 value_states
+        if use_cache and past_key_value is None:
+            # 第一次调用时，返回当前的 key_states 和 value_states 作为 present_key_value
+            # 注意：这里保存的是 repeat_kv 之前的原始 key_states 和 value_states
+            present_key_value = (key_states, value_states)
+        else:
+            present_key_value = past_key_value
+
         # Repeat KV for GQA
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
@@ -286,7 +295,7 @@ class LlamaAttention(nn.Module):
         if not output_attentions:
             attn_weights = None
 
-        return attn_output, attn_weights, past_key_value
+        return attn_output, attn_weights, present_key_value
 
 
 class LlamaDecoderLayer(nn.Module):
@@ -375,25 +384,30 @@ class LlamaModel(nn.Module):
         # [MODIFIED] add medusa mask
         # 这是 Medusa 的核心逻辑：如果存在 medusa_mask，则将其叠加到 attention mask 上
         if hasattr(self, "medusa_mask") and self.medusa_mask is not None:
-            # [CRITICAL FIX] 必须先 clone，否则对 expand 出来的 view 进行 setitem 会导致 CUDA Illegal Address
+            # [CRITICAL FIX] 如果 combined_attention_mask 为 None，说明序列长度为 1，不需要应用 medusa_mask
+            # medusa_mask 只在序列长度 > 1 时才有意义（tree decoding 阶段）
             if combined_attention_mask is not None:
+                # [CRITICAL FIX] 必须先 clone，否则对 expand 出来的 view 进行 setitem 会导致 CUDA Illegal Address
                 combined_attention_mask = combined_attention_mask.clone()
                 
-            medusa_mask = self.medusa_mask # [bs, medusa_len]
-            medusa_len = medusa_mask.shape[-1]
-            
-            # 获取目标切片
-            # 注意：如果 combined_attention_mask 比 medusa_mask 小，这里会报错。
-            # 但在 tree_decoding 阶段，combined_attention_mask 长度至少为 medusa_len。
-            target_slice = combined_attention_mask[:, :, -medusa_len:, -medusa_len:]
-            
-            min_val = combined_attention_mask.min()
-            
-            # 构造新的 mask 片段
-            masked_slice = jt.where(medusa_mask == 0, min_val, target_slice)
-            
-            # 写回 (SetItem)
-            combined_attention_mask[:, :, -medusa_len:, -medusa_len:] = masked_slice
+                medusa_mask = self.medusa_mask # [bs, medusa_len]
+                medusa_len = medusa_mask.shape[-1]
+                
+                # 获取目标切片
+                # 注意：如果 combined_attention_mask 比 medusa_mask 小，这里会报错。
+                # 但在 tree_decoding 阶段，combined_attention_mask 长度至少为 medusa_len。
+                # 添加检查，确保 combined_attention_mask 的长度足够
+                seq_len = combined_attention_mask.shape[-1]
+                if seq_len >= medusa_len:
+                    target_slice = combined_attention_mask[:, :, -medusa_len:, -medusa_len:]
+                    
+                    min_val = combined_attention_mask.min()
+                    
+                    # 构造新的 mask 片段
+                    masked_slice = jt.where(medusa_mask == 0, min_val, target_slice)
+                    
+                    # 写回 (SetItem)
+                    combined_attention_mask[:, :, -medusa_len:, -medusa_len:] = masked_slice
 
         return combined_attention_mask
 

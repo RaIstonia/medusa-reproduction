@@ -1,0 +1,263 @@
+{
+  "config": {
+    "base_model_path": "../Medusa/vicuna-7b-v1.3",
+    "medusa_weights": "../repro/medusa_checkpoints_1218/checkpoint-final/medusa_lm_head.jtr",
+    "medusa_num_heads": 5,
+    "max_seq_length": 4096,
+    "temperature": 0.7,
+    "max_new_token": 2048,
+    "posterior_threshold": 0.01,
+    "posterior_alpha": 0.1,
+    "num_samples": 10
+  },
+  "medusa_results": [
+    {
+      "sample_id": 0,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions. ASSISTANT: ",
+      "num_tokens": 694,
+      "generation_time": 18.437966346740723,
+      "throughput": 37.63972593011476,
+      "avg_accept_per_step": 2.648854961832061,
+      "num_steps": 262,
+      "total_steps": 262,
+      "total_forward_calls": 263,
+      "kv_cache_used_count": 263,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 1,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Draft a professional email seeking your supervisor's feedback on the 'Quarterly Financial Report' you prepared. Ask specifically about the data analysis, presentation style, and the clarity of conclusions drawn. Keep the email short and to the point. ASSISTANT: ",
+      "num_tokens": 229,
+      "generation_time": 4.849823713302612,
+      "throughput": 47.21821112216398,
+      "avg_accept_per_step": 3.013157894736842,
+      "num_steps": 76,
+      "total_steps": 76,
+      "total_forward_calls": 77,
+      "kv_cache_used_count": 77,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 2,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine you are writing a blog post comparing two popular smartphone models. Develop an outline for the blog post, including key points and subheadings to effectively compare and contrast the features, performance, and user experience of the two models. Please answer in fewer than 200 words. ASSISTANT: ",
+      "num_tokens": 175,
+      "generation_time": 3.8717446327209473,
+      "throughput": 45.19926198671197,
+      "avg_accept_per_step": 2.8225806451612905,
+      "num_steps": 62,
+      "total_steps": 62,
+      "total_forward_calls": 63,
+      "kv_cache_used_count": 63,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 3,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a persuasive email to convince your introverted friend, who dislikes public speaking, to volunteer as a guest speaker at a local event. Use compelling arguments and address potential objections. Please be concise. ASSISTANT: ",
+      "num_tokens": 432,
+      "generation_time": 9.999824285507202,
+      "throughput": 43.200759099947376,
+      "avg_accept_per_step": 2.823529411764706,
+      "num_steps": 153,
+      "total_steps": 153,
+      "total_forward_calls": 154,
+      "kv_cache_used_count": 154,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 4,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Describe a vivid and unique character, using strong imagery and creative language. Please answer in fewer than two paragraphs. ASSISTANT: ",
+      "num_tokens": 247,
+      "generation_time": 5.675839185714722,
+      "throughput": 43.51779391876779,
+      "avg_accept_per_step": 2.6847826086956523,
+      "num_steps": 92,
+      "total_steps": 92,
+      "total_forward_calls": 93,
+      "kv_cache_used_count": 93,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 5,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a descriptive paragraph about a bustling marketplace, incorporating sensory details such as smells, sounds, and visual elements to create an immersive experience for the reader. ASSISTANT: ",
+      "num_tokens": 2059,
+      "generation_time": 134.13168287277222,
+      "throughput": 15.35058649754675,
+      "avg_accept_per_step": 1.4209799861973775,
+      "num_steps": 1449,
+      "total_steps": 1449,
+      "total_forward_calls": 1450,
+      "kv_cache_used_count": 1450,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 6,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Could you write a captivating short story beginning with the sentence: The old abandoned house at the end of the street held a secret that no one had ever discovered. ASSISTANT: ",
+      "num_tokens": 597,
+      "generation_time": 14.532862424850464,
+      "throughput": 41.07931270161617,
+      "avg_accept_per_step": 2.763888888888889,
+      "num_steps": 216,
+      "total_steps": 216,
+      "total_forward_calls": 217,
+      "kv_cache_used_count": 217,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 7,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Craft an intriguing opening paragraph for a fictional short story. The story should involve a character who wakes up one morning to find that they can time travel. ASSISTANT: ",
+      "num_tokens": 873,
+      "generation_time": 18.550750732421875,
+      "throughput": 47.060090052001165,
+      "avg_accept_per_step": 3.2943396226415094,
+      "num_steps": 265,
+      "total_steps": 265,
+      "total_forward_calls": 266,
+      "kv_cache_used_count": 266,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 8,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Help me construct a catchy, yet scientifically accurate, headline for an article on the latest discovery in renewable bio-energy, while carefully handling the ethical dilemmas surrounding bio-energy sources. Propose 4 options. ASSISTANT: ",
+      "num_tokens": 131,
+      "generation_time": 3.544188976287842,
+      "throughput": 36.961911702916154,
+      "avg_accept_per_step": 2.3392857142857144,
+      "num_steps": 56,
+      "total_steps": 56,
+      "total_forward_calls": 57,
+      "kv_cache_used_count": 57,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 9,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Edit the following paragraph to correct any grammatical errors:\nShe didn't remembre where is her purse, so I thinks its in the car but he's say it's on kitchen table but he are not sure, and then they asked me to looking for it, she's say, \"Can you?\", and I responds with, \"Maybe, but ain't no sure,\" and he not heard me, and, \"What?\", he asks, \"Did you found it?\". ASSISTANT: ",
+      "num_tokens": 162,
+      "generation_time": 5.606529712677002,
+      "throughput": 28.894879417779514,
+      "avg_accept_per_step": 1.8,
+      "num_steps": 90,
+      "total_steps": 90,
+      "total_forward_calls": 91,
+      "kv_cache_used_count": 91,
+      "fallback_count": 0
+    }
+  ],
+  "base_model_results": [
+    {
+      "sample_id": 0,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions. ASSISTANT: ",
+      "num_tokens": 706,
+      "generation_time": 21.932769536972046,
+      "throughput": 32.18927727343765,
+      "total_steps": 705,
+      "kv_cache_used_count": 705,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 1,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Draft a professional email seeking your supervisor's feedback on the 'Quarterly Financial Report' you prepared. Ask specifically about the data analysis, presentation style, and the clarity of conclusions drawn. Keep the email short and to the point. ASSISTANT: ",
+      "num_tokens": 313,
+      "generation_time": 9.344347476959229,
+      "throughput": 33.496185878337464,
+      "total_steps": 312,
+      "kv_cache_used_count": 312,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 2,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine you are writing a blog post comparing two popular smartphone models. Develop an outline for the blog post, including key points and subheadings to effectively compare and contrast the features, performance, and user experience of the two models. Please answer in fewer than 200 words. ASSISTANT: ",
+      "num_tokens": 58,
+      "generation_time": 1.6632733345031738,
+      "throughput": 34.870997326079795,
+      "total_steps": 57,
+      "kv_cache_used_count": 57,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 3,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a persuasive email to convince your introverted friend, who dislikes public speaking, to volunteer as a guest speaker at a local event. Use compelling arguments and address potential objections. Please be concise. ASSISTANT: ",
+      "num_tokens": 227,
+      "generation_time": 6.71321439743042,
+      "throughput": 33.81390591173247,
+      "total_steps": 226,
+      "kv_cache_used_count": 226,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 4,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Describe a vivid and unique character, using strong imagery and creative language. Please answer in fewer than two paragraphs. ASSISTANT: ",
+      "num_tokens": 468,
+      "generation_time": 14.119312763214111,
+      "throughput": 33.146089179305406,
+      "total_steps": 467,
+      "kv_cache_used_count": 467,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 5,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a descriptive paragraph about a bustling marketplace, incorporating sensory details such as smells, sounds, and visual elements to create an immersive experience for the reader. ASSISTANT: ",
+      "num_tokens": 604,
+      "generation_time": 18.524355173110962,
+      "throughput": 32.60572334937394,
+      "total_steps": 603,
+      "kv_cache_used_count": 603,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 6,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Could you write a captivating short story beginning with the sentence: The old abandoned house at the end of the street held a secret that no one had ever discovered. ASSISTANT: ",
+      "num_tokens": 554,
+      "generation_time": 16.89427947998047,
+      "throughput": 32.792164984395086,
+      "total_steps": 553,
+      "kv_cache_used_count": 553,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 7,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Craft an intriguing opening paragraph for a fictional short story. The story should involve a character who wakes up one morning to find that they can time travel. ASSISTANT: ",
+      "num_tokens": 217,
+      "generation_time": 6.348757982254028,
+      "throughput": 34.179913710139175,
+      "total_steps": 216,
+      "kv_cache_used_count": 216,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 8,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Help me construct a catchy, yet scientifically accurate, headline for an article on the latest discovery in renewable bio-energy, while carefully handling the ethical dilemmas surrounding bio-energy sources. Propose 4 options. ASSISTANT: ",
+      "num_tokens": 127,
+      "generation_time": 3.6675846576690674,
+      "throughput": 34.627694205895935,
+      "total_steps": 126,
+      "kv_cache_used_count": 126,
+      "fallback_count": 0
+    },
+    {
+      "sample_id": 9,
+      "input_prompt": "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Edit the following paragraph to correct any grammatical errors:\nShe didn't remembre where is her purse, so I thinks its in the car but he's say it's on kitchen table but he are not sure, and then they asked me to looking for it, she's say, \"Can you?\", and I responds with, \"Maybe, but ain't no sure,\" and he not heard me, and, \"What?\", he asks, \"Did you found it?\". ASSISTANT: ",
+      "num_tokens": 186,
+      "generation_time": 5.555064678192139,
+      "throughput": 33.48295848474847,
+      "total_steps": 185,
+      "kv_cache_used_count": 185,
+      "fallback_count": 0
+    }
+  ],
+  "summary": {
+    "medusa": {
+      "total_tokens": 5599,
+      "total_time": 219.2012128829956,
+      "avg_throughput": 25.542741877932094,
+      "avg_accept_per_step": 2.057699375229695,
+      "num_samples": 10
+    },
+    "base_model": {
+      "total_tokens": 3460,
+      "total_time": 104.76295948028564,
+      "avg_throughput": 33.02694021975491,
+      "num_samples": 10
+    },
+    "speedup": 0.7733911076223108
+  }
+}

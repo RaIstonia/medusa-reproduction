@@ -60,6 +60,9 @@ logs/
 wandb/
 tensorboard/
 runs/
+# 测试答案文件
+medusa_test_*.jsonl
+*_test_answer*.jsonl
 
 # 压缩文件
 *.tar.gz
