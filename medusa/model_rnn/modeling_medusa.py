@@ -1,6 +1,5 @@
 import jittor as jt
 from jittor import nn
-# from transformers import PretrainedConfig
 import warnings
 import copy
 import time
@@ -24,8 +23,6 @@ DEFAULT_MEDUSA_CHOICES = [
     [0, 0, 6], [0, 3, 0], [5, 0], [1, 3], [0, 0, 7], [0, 0, 8], [0, 0, 9], [6, 0], 
     [0, 4, 0], [1, 4], [7, 0], [0, 1, 2], [2, 0, 0], [3, 1], [2, 2], [8, 0], 
     [0, 5, 0], [1, 5], [1, 0, 1], [0, 2, 1], [9, 0], [0, 6, 0], [1, 6], [0, 7, 0]
-    # 注意：已删除长度为4的路径 [0, 0, 0, 0] 和 [0, 0, 0, 1]
-    # 因为训练时只使用了3个medusa heads，理论上最大深度应为3
 ]
 
 class PretrainedConfig:
@@ -58,41 +55,86 @@ class MedusaConfig(PretrainedConfig):
         self.base_model_name_or_path = base_model_name_or_path
         self.enable_lora_training = enable_lora_training
 
-class ResBlock(nn.Module):
+# [修改类] GatedMedusaBlock
+class GatedMedusaBlock(nn.Module):
     """
-    Medusa Head 使用的残差块。
-    包含一个 Linear 层和一个 SiLU 激活函数。
+    包含预测头和状态更新机制的门控单元 (RNN-style)
+    Logic:
+        Logits = Head(S_k)
+        if not last_head:
+            Gate   = Sigmoid(Linear(S_k))
+            S_new  = MLP(S_k)
+            S_{k+1}= (1-Gate)*S_k + Gate*S_new
     """
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, vocab_size, is_last_head=False):
         super().__init__()
-        # 注意：Jittor 的 Linear 默认初始化分布可能不同
-        self.linear = nn.Linear(hidden_size, hidden_size)
-        self.act = nn.SiLU()
+        self.is_last_head = is_last_head
         
-        # 初始化策略：为了保证初始状态下 Medusa Head 不影响原模型或输出接近 0
-        # 将权重初始化为 0 (类似原版逻辑)
-        jt.init.constant_(self.linear.weight, 0.0)
-        if self.linear.bias is not None:
-            jt.init.constant_(self.linear.bias, 0.0)
+        # 1. 预测层 (所有 Head 都有)
+        self.head_linear = nn.Linear(hidden_size, vocab_size, bias=False)
+        
+        if not self.is_last_head:
+            # 2. 门控层 (最后一个 Head 不需要)
+            self.gate_linear = nn.Linear(hidden_size, hidden_size)
+            
+            # 3. 更新层 (最后一个 Head 不需要)
+            self.update_mlp = nn.Sequential(
+                nn.Linear(hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, hidden_size)
+            )
+        
+        # 初始化策略
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        # 预测头初始化为 0
+        jt.init.constant_(self.head_linear.weight, 0.0)
+        
+        if not self.is_last_head:
+            # 门控初始化：偏置设为 -2.0，使初始 Gate 接近 0
+            jt.init.constant_(self.gate_linear.weight, 0.0)
+            jt.init.constant_(self.gate_linear.bias, -2.0) 
+            
+            # Update MLP 初始化
+            jt.init.constant_(self.update_mlp[0].weight, 0.0)
+            jt.init.constant_(self.update_mlp[2].weight, 0.0)
+            if self.update_mlp[0].bias is not None: jt.init.constant_(self.update_mlp[0].bias, 0.0)
+            if self.update_mlp[2].bias is not None: jt.init.constant_(self.update_mlp[2].bias, 0.0)
 
     def execute(self, x):
         """
         Args:
-            x (jt.Var): Input tensor [batch, seq_len, hidden_size]
+            x (jt.Var): 当前状态 S_k [batch, seq_len, hidden_size]
+        Returns:
+            logits: 当前头的预测 [batch, seq_len, vocab_size]
+            x_next: 下一时刻的状态 S_{k+1} (如果是最后一个 Head，返回 None)
         """
-        return x + self.act(self.linear(x))
+        # 1. 计算 Logits
+        logits = self.head_linear(x)
+        
+        if self.is_last_head:
+            # 如果是最后一个 Head，不需要计算下一个状态，直接返回 None
+            return logits, None
+            
+        # 2. 计算门控 Z (范围 0~1)
+        z = jt.sigmoid(self.gate_linear(x))
+        
+        # 3. 计算更新量
+        h_new = self.update_mlp(x)
+        
+        # 4. 融合状态 (Gate 机制)
+        # S_{k+1} = (1 - z) * S_k + z * h_new
+        x_next = (1 - z) * x + z * h_new
+        
+        return logits, x_next
 
 class MedusaModel(nn.Module):
     """
     Medusa 模型主体。
-    它包装了一个基础的大语言模型 (base_model)，并附加了多个 Medusa Heads。
+    它包装了一个基础的大语言模型 (base_model)，并附加了多个 Gated Medusa Blocks。
     """
     def __init__(self, config, base_model=None):
-        """
-        Args:
-            config (MedusaConfig): 配置对象
-            base_model (nn.Module, optional): 预先加载好的基础模型实例 (如 LlamaForCausalLM 的 Jittor 版本)
-        """
         super().__init__()
         self.config = config
         self.medusa_num_heads = config.medusa_num_heads
@@ -104,33 +146,25 @@ class MedusaModel(nn.Module):
         self.hidden_size = config.hidden_size
         self.vocab_size = config.vocab_size
 
-        # 保存 Base Model
-        # 如果初始化时未传入，后续可以通过 set_base_model 方法设置
         self.base_model = base_model
 
-        # 创建 Medusa Heads
-        # 结构：List[ Sequential( ResBlock * k, Linear ) ]
-        self.medusa_head = nn.ModuleList([
-            nn.Sequential(
-                *([ResBlock(self.hidden_size)] * self.medusa_num_layers),
-                nn.Linear(self.hidden_size, self.vocab_size, bias=False)
+        # [修改] 初始化 Block 时，标记最后一个 Block 为 is_last_head
+        self.medusa_blocks = nn.ModuleList()
+        for i in range(self.medusa_num_heads):
+            is_last = (i == self.medusa_num_heads - 1)
+            self.medusa_blocks.append(
+                GatedMedusaBlock(self.hidden_size, self.vocab_size, is_last_head=is_last)
             )
-            for _ in range(self.medusa_num_heads)
-        ])
         
-        # 缓存 buffer 占位符 (将在 generate 阶段初始化)
         self.medusa_buffers = None
         self.medusa_choices = None
 
     def set_base_model(self, base_model):
-        """后期设置基础模型"""
         self.base_model = base_model
 
     def get_tokenizer(self):
-        """获取 tokenizer (通常由外部管理，这里保留接口兼容性)"""
         if hasattr(self, 'tokenizer'):
             return self.tokenizer
-        # 如果没有，尝试从 base_model 获取
         if self.base_model and hasattr(self.base_model, 'tokenizer'):
             return self.base_model.tokenizer
         raise AttributeError("Tokenizer not found in MedusaModel")
@@ -143,19 +177,12 @@ class MedusaModel(nn.Module):
         output_orig=False,
         position_ids=None,
         medusa_forward=False,
-        return_medusa_logits=True,  # [新增参数] 默认为 True，用于控制是否计算 Medusa Heads
+        return_medusa_logits=True,
         **kwargs,
     ):
         """
         前向传播逻辑。
-        
-        Args:
-            medusa_forward (bool): 如果为 True，则计算 Medusa Heads 的输出。
-                                   如果为 False，仅运行 base_model (用于 prefill 或普通生成)。
-            return_medusa_logits (bool): 如果为 False，跳过 Medusa Heads 计算（用于 Tree Decoding 阶段的极致优化）。
-                                         默认为 True，确保 initialize_medusa 正常工作。
         """
-        # 1. 如果不是 Medusa 模式，直接透传给 Base Model
         if not medusa_forward:
             if self.base_model is None:
                 raise RuntimeError("Base model is not initialized.")
@@ -164,51 +191,41 @@ class MedusaModel(nn.Module):
                 attention_mask=attention_mask,
                 past_key_values=past_key_values,
                 position_ids=position_ids,
-                return_dict=True, # 强制返回对象以便后续处理
+                return_dict=True,
                 **kwargs
             )
 
-        # 2. Medusa 模式 (通常用于 Medusa 头的训练或树形验证步骤)
-        # 根据 enable_lora_training 参数决定是否保留梯度连接
-        
-        # 如果启用 LoRA 训练，需要保留 Base Model 的梯度计算图
+        # Medusa 模式
+        # 处理 Base Model 的梯度逻辑
         if self.enable_lora_training:
-            # LoRA 训练模式：保留梯度连接，允许梯度回传到 Base Model 的 LoRA 层
+            # LoRA 训练：保留 Base Model 梯度
             base_outputs = self.base_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 past_key_values=past_key_values,
                 position_ids=position_ids,
-                output_hidden_states=True, # 关键：必须请求 hidden_states
-                return_dict=True,          # 关键：强制返回字典对象
+                output_hidden_states=True,
+                return_dict=True,
                 **kwargs,
             )
-            
-            # 解析 Base Model 输出
             last_hidden_state = base_outputs.hidden_states[-1]
             
-            # === [修复逻辑] 使用 return_medusa_logits 参数控制是否计算 Medusa Heads ===
-            # 如果显式要求不返回 Medusa Logits (用于 Tree Decoding 阶段的极致优化)
             if not return_medusa_logits:
                 if output_orig:
                     return None, base_outputs, base_outputs.logits
                 return None
             
-            # 正常计算 Medusa Heads (用于 Initialize 阶段或单步预测)
-            # 如果只需要 Medusa Logits (训练 Medusa Head 时)
-            hs = last_hidden_state.clone().float32()
-            
-            # 在训练时，保留计算图，允许梯度回传
-            # 不调用 stop_grad()，保持梯度连接
-            # 注意：仍然需要 sync 来确保计算完成
-            hs.sync()
-            
-            # 计算 Medusa Heads (用于训练)
+            # LoRA 模式下，Head 0 的输入需要保留梯度连接到 Base Model
+            current_state = last_hidden_state.clone().float32()
+            current_state.sync()
+
             medusa_logits = []
-            for i in range(self.medusa_num_heads):
-                medusa_logits.append(self.medusa_head[i](hs))
+            # [修改] 串行执行 Medusa Blocks
+            for block in self.medusa_blocks:
+                logits, next_state = block(current_state)
+                medusa_logits.append(logits)
+                current_state = next_state # 传递状态到下一个 Head (最后一个为 None)
             
-            # 堆叠结果: [num_heads, batch, seq_len, vocab_size]
             medusa_logits_stack = jt.stack(medusa_logits, dim=0)
             
             if output_orig:
@@ -216,49 +233,42 @@ class MedusaModel(nn.Module):
                 saved_base_outputs = base_outputs
                 return medusa_logits_stack, saved_base_outputs, orig_logits
             
-            # 清理引用（但保留梯度连接）
             del base_outputs
             del last_hidden_state
-            
             return medusa_logits_stack
             
         else:
-            # 原始模式：显存优化，切断梯度连接（仅训练 Medusa Head）
-            with jt.no_grad(): # 在 Medusa 推理模式下，Base Model 不需要计算梯度
+            # 仅训练 Medusa Head (Base Model 冻结)
+            with jt.no_grad():
                 base_outputs = self.base_model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
                     position_ids=position_ids,
-                    output_hidden_states=True, # 关键：必须请求 hidden_states
-                    return_dict=True,          # 关键：强制返回字典对象
+                    output_hidden_states=True,
+                    return_dict=True,
                     **kwargs,
                 )
             
-            # 解析 Base Model 输出
-            # base_outputs.hidden_states 是一个元组，包含每一层的输出
-            # 最后一个元素 ([-1]) 是经过了 LlamaRMSNorm 后的最终隐状态，正是 Medusa Head 的输入
             last_hidden_state = base_outputs.hidden_states[-1]
 
-            # === [修复逻辑] 使用 return_medusa_logits 参数控制是否计算 Medusa Heads ===
-            # 如果显式要求不返回 Medusa Logits (用于 Tree Decoding 阶段的极致优化)
             if not return_medusa_logits:
                 if output_orig:
                     return None, base_outputs, base_outputs.logits
                 return None
             
-            # 正常计算 Medusa Heads (用于 Initialize 阶段或单点预测)
-            hs = last_hidden_state.stop_grad()
-            
-            # 确保类型正确 (Medusa Heads 通常需要 float32)
-            if hs.dtype != "float32":
-                hs = hs.float32()
+            # 仅切断 Base Model 到 Head 0 的梯度
+            current_state = last_hidden_state.stop_grad()
+            if current_state.dtype != "float32":
+                current_state = current_state.float32()
             
             medusa_logits = []
-            for i in range(self.medusa_num_heads):
-                medusa_logits.append(self.medusa_head[i](hs))
+            # [修改] 串行执行 Medusa Blocks
+            for block in self.medusa_blocks:
+                logits, next_state = block(current_state)
+                medusa_logits.append(logits)
+                current_state = next_state # 传递状态 (最后一个为 None)
             
-            # 堆叠结果: [num_heads, batch, seq_len, vocab_size]
             medusa_logits_stack = jt.stack(medusa_logits, dim=0)
             
             if output_orig:
@@ -270,11 +280,33 @@ class MedusaModel(nn.Module):
 
     def load_medusa_weights(self, weight_path):
         """
-        专门加载 Medusa Head 的权重。
+        专门加载 Medusa Head 的权重。增加对旧版权重和新版架构的兼容性检查。
         """
         print(f"Loading Medusa heads from {weight_path}")
         state_dict = jt.load(weight_path)
-        self.medusa_head.load_parameters(state_dict)
+        
+        new_state_dict = {}
+        is_legacy = False
+        
+        for k, v in state_dict.items():
+            if "medusa_head" in k:
+                is_legacy = True
+                break
+        
+        if is_legacy:
+            print("WARNING: Detecting legacy Medusa weights (Independent Heads).")
+            for k, v in state_dict.items():
+                if "medusa_head" in k:
+                    parts = k.split('.')
+                    idx = int(parts[1])
+                    if "1.weight" in k: # old output linear weight
+                         new_key = f"medusa_blocks.{idx}.head_linear.weight"
+                         new_state_dict[new_key] = v
+            self.load_parameters(new_state_dict, strict=False)
+        else:
+            # 正常加载，使用 strict=False 以容忍旧权重中可能包含的最后一个 Head 的多余参数
+            # 如果新权重已经去除了最后一个 Head 的 Gate 参数，那么完全匹配
+            self.medusa_blocks.load_parameters(state_dict, strict=False)
 
     def medusa_generate(
         self,
@@ -293,15 +325,12 @@ class MedusaModel(nn.Module):
     ):
         assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
         
-        # 设置调试模式
         self._debug_mode = (debug_callback is not None)
         self._debug_callback = debug_callback
         
         if medusa_choices is None:
             medusa_choices = DEFAULT_MEDUSA_CHOICES
         
-        # 根据 medusa_num_heads 过滤 medusa_choices，只保留深度 <= medusa_num_heads 的路径
-        # 这确保树结构与实际训练的 medusa heads 数量匹配，避免 accept_length 超过理论最大值
         filtered_choices = [choice for choice in medusa_choices if len(choice) <= self.medusa_num_heads]
         if len(filtered_choices) != len(medusa_choices):
             medusa_choices = filtered_choices
@@ -321,81 +350,53 @@ class MedusaModel(nn.Module):
         
         reset_medusa_mode(self)
 
-        # 初始化性能统计变量
-        prefill_time = 0.0  # prefill阶段的总时间（包含base model forward和medusa heads）
-        total_medusa_heads_time = 0.0  # medusa heads预测token的总时间（不包括prefill）
-        total_tree_decoding_time = 0.0  # base model tree decoding的总时间
-        total_generate_candidates_time = 0.0  # generate_candidates的总时间
-        total_evaluate_posterior_time = 0.0  # evaluate_posterior的总时间
-        total_update_inputs_time = 0.0  # update_inference_inputs的总时间
-        total_step_overhead_time = 0.0  # 每个step中未统计的时间（numpy转换、字符串处理、边界检查等）
+        prefill_time = 0.0
+        total_medusa_heads_time = 0.0
+        total_tree_decoding_time = 0.0
+        total_generate_candidates_time = 0.0
+        total_evaluate_posterior_time = 0.0
+        total_update_inputs_time = 0.0
+        total_step_overhead_time = 0.0
         
-        # 初始化（prefill）阶段：包含base model forward和medusa heads计算
         prefill_start = time.time()
+        # 初始化阶段 (prefill)
         medusa_logits, logits = initialize_medusa(
             input_ids, self, medusa_buffers["medusa_attn_mask"], past_key_values
         )
         jt.sync_all()
         prefill_time = time.time() - prefill_start
         
-        # 初始化prev_step_measured_time（用于计算每个step中已统计的时间）
         self._prev_step_measured_time = 0.0
 
         new_token = 0
         input_len = input_ids.shape[1]
         
-        # === [核心修复] 获取模型允许的最大长度和 Medusa 安全余量 ===
-        # Vicuna v1.3 config usually has 2048. Safe guard with 2048 if None.
-        # 从 base_model 的 config 中获取，因为 MedusaConfig 可能没有这个属性
         if self.base_model and hasattr(self.base_model, 'config'):
             max_model_len = getattr(self.base_model.config, "max_position_embeddings", 2048)
         else:
-            max_model_len = 2048  # 默认值
-        # 获取 Medusa 树的最大深度 (投机步长)
-        # 简单估算：medusa_choices 的最大长度，或者给一个保守的 Buffer
-        # 为了安全，这里给一个保守的 Buffer，比如 64
+            max_model_len = 2048
+            
         if medusa_choices is not None:
-            # 计算 medusa_choices 中的最大深度
             max_tree_depth = max(len(choice) for choice in medusa_choices) if medusa_choices else 0
-            safe_margin = max(64, max_tree_depth * 2)  # 至少 64，或者树深度的 2 倍
+            safe_margin = max(64, max_tree_depth * 2)
         else:
             safe_margin = 64
 
         for idx in range(max_steps):
             step_start_time = time.time()
-            # === [核心修复] 边界检查 ===
-            # 获取当前序列长度
             current_seq_len = input_ids.shape[1]
             
-            # 如果 (当前长度 + 安全余量) 超过了模型最大长度，强制停止
-            # 这是为了防止 Medusa 的树形探测访问到 KV Cache 2048 之外的地方
             if current_seq_len + safe_margin >= max_model_len:
-                # 触发停止条件
                 if tokenizer is not None:
-                    # decode 逻辑
                     curr_ids = input_ids[0, input_len:].numpy().tolist()
                     text = tokenizer.decode(curr_ids, skip_special_tokens=True)
-                    yield {
-                        "text": text,
-                        "ids": curr_ids,
-                        "accept_length": 0,
-                        "step": idx
-                    }
+                    yield {"text": text, "ids": curr_ids, "accept_length": 0, "step": idx}
                 else:
-                    # 即使没有 tokenizer，也返回结构化数据
                     curr_ids = input_ids[0, input_len:].numpy().tolist()
-                    yield {
-                        "ids": curr_ids,
-                        "accept_length": 0,
-                        "step": idx
-                    }
-                # 强制停止，不再进行下一步的树形探测
+                    yield {"ids": curr_ids, "accept_length": 0, "step": idx}
                 break
-            # ==========================
             
             # (A) Generate Candidates
-            # suppress_special_tokens=True: 抑制 BOS/EOS 等特殊 token
-            # 避免 base model 在某些情况下给特殊 token 很高的概率导致生成跑偏
             gc_start = time.time()
             candidates, tree_candidates = generate_candidates(
                 medusa_logits,
@@ -414,20 +415,11 @@ class MedusaModel(nn.Module):
             total_generate_candidates_time += time.time() - gc_start
 
             # (B) Tree Decoding
-            # 保存 Tree Decoding 之前的 KV Cache 长度（用于后续 gather_and_reset）
-            # 确保 prev_len_before_tree 是 Python int
             prev_len_before_tree = int(input_ids.shape[1])
-            
-            # 确保 medusa_mask 被设置（tree_decoding 需要它）
-            # 注意：在第一次 prefill 后，medusa_mask 已经被 initialize_medusa 设置了
-            # 但在回滚后的 Forward 中，我们清除了它，所以这里需要重新设置
             if self.base_model.model.medusa_mask is None:
                 self.base_model.model.medusa_mask = medusa_buffers["medusa_attn_mask"]
             
-            # 统计tree decoding（base model forward）的时间
             td_start = time.time()
-            # === [核心性能优化] Tree Decoding 不再返回 Medusa Logits ===
-            # 我们只对最后一个被接受的 Token 计算 Medusa Heads
             _, tree_logits, original_tree_logits, _, tree_outputs = tree_decoding(
                 self,
                 tree_candidates,
@@ -440,32 +432,25 @@ class MedusaModel(nn.Module):
             total_tree_decoding_time += time.time() - td_start
 
             # (C) Evaluate Posterior
-            # 检查是否需要返回调试信息（通过检查是否有debug_callback）
             return_debug = hasattr(self, '_debug_mode') and self._debug_mode
-            # 获取当前序列（用于调试信息）
             current_seq_for_debug = input_ids[0] if return_debug else None
             ep_start = time.time()
             if return_debug:
                 best_candidate, accept_length, debug_info = evaluate_posterior(
                     tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast, tokenizer=tokenizer, return_debug_info=True, medusa_choices=medusa_choices, current_sequence=current_seq_for_debug,
-                    retrieve_indices=medusa_buffers["retrieve_indices"]  # [关键] 传入索引用于路径映射
+                    retrieve_indices=medusa_buffers["retrieve_indices"]
                 )
-                # 调用调试回调函数
                 if hasattr(self, '_debug_callback') and self._debug_callback:
                     self._debug_callback(debug_info, idx, tokenizer)
             else:
                 best_candidate, accept_length = evaluate_posterior(
                     tree_logits, candidates, temperature, posterior_threshold, posterior_alpha, top_p=top_p, sampling=sampling, fast=fast, tokenizer=tokenizer, medusa_choices=medusa_choices, current_sequence=None,
-                    retrieve_indices=medusa_buffers["retrieve_indices"]  # [关键] 传入索引用于路径映射
+                    retrieve_indices=medusa_buffers["retrieve_indices"]
                 )
             jt.sync_all()
             total_evaluate_posterior_time += time.time() - ep_start
 
-            # (D) Efficient Update (关键优化)
-            # 核心优化：从 Tree Decoding 的结果中直接提取最后一个被接受 token 的 hidden state
-            # 不再需要 Correction Step Forward，因为 hidden state 已经在 tree decoding 中计算好了
-            
-            # 调用新的 update_inference_inputs，返回 last_hidden_state
+            # (D) Efficient Update
             ui_start = time.time()
             input_ids, last_hidden_state, logits, _, new_token = update_inference_inputs(
                 input_ids=input_ids,
@@ -473,80 +458,63 @@ class MedusaModel(nn.Module):
                 best_candidate=best_candidate,
                 accept_length=accept_length,
                 retrieve_indices=medusa_buffers["retrieve_indices"],
-                tree_logits=original_tree_logits,        # 传入原始 tree_logits [Batch, Tree_Size, Vocab]
-                tree_medusa_logits=None,                  # 不再需要，因为我们在 Tree Decoding 阶段不计算
-                tree_outputs=tree_outputs,               # 传入 tree_outputs 以提取 hidden_states
+                tree_logits=original_tree_logits,
+                tree_medusa_logits=None,
+                tree_outputs=tree_outputs,
                 new_token=new_token,
-                past_key_values=past_key_values,         # 传入对象列表以进行 Gather
-                prev_len_before_tree=prev_len_before_tree  # 传入基准长度
+                past_key_values=past_key_values,
+                prev_len_before_tree=prev_len_before_tree
             )
             jt.sync_all()
             total_update_inputs_time += time.time() - ui_start
             
-            # === [核心性能优化] 只对"胜出"的那 1 个 Token 计算 Medusa Heads ===
-            # 这里的 last_hidden_state 是 [1, 1, Hidden]
-            # 计算量从 64 * 5 降为 1 * 5，减少 98%
+            # === [核心修改] 串行执行 Gated Medusa Blocks ===
             mh_start = time.time()
             
-            # 手动调用 Medusa Heads
-            # 确保 stop_grad 和 float32 类型（Medusa Heads 通常需要 float32）
-            hs_input = last_hidden_state.stop_grad().float32()
+            # 初始状态 S_0 [1, 1, Hidden]
+            current_state = last_hidden_state.stop_grad().float32()
             
             medusa_logits_list = []
-            for i in range(self.medusa_num_heads):
-                medusa_logits_list.append(self.medusa_head[i](hs_input))
+            # 串行传递状态
+            for block in self.medusa_blocks:
+                logits_out, next_state = block(current_state)
+                medusa_logits_list.append(logits_out)
+                current_state = next_state 
             
             medusa_logits = jt.stack(medusa_logits_list, dim=0)  # [Heads, Batch, 1, Vocab]
             jt.sync_all()
             total_medusa_heads_time += time.time() - mh_start
             
-            # logits 已经由 update_inference_inputs 从 tree_logits 中提取
-            # logits shape: [Batch, 1, Vocab]
-            
-            # === [性能优化] 极简的 Loop 结尾 ===
-            # 1. 计算 ids（用于统计 token 数量），但仅在需要时进行解码
-            # 在 fast 模式下，我们只计算 ids 但不进行字符串解码
+            # Output processing (same as original)
             output_start = time.time()
             curr_ids = input_ids[0, input_len:].numpy().tolist()
             output_time = time.time() - output_start
             
-            # 2. 仅在非 fast 模式或 debug 模式下才进行字符串解码
             if not fast or self._debug_mode:
                 if tokenizer is not None:
                     text = tokenizer.decode(curr_ids, skip_special_tokens=True)
                 else:
                     text = None
             else:
-                # 测速模式：跳过字符串解码（但保留 ids 用于统计）
                 text = None
             
-            # 2. 高效的 EOS 检查
-            # 不转换整个 list，直接检查最后一个 token
             eos_detected = False
             if tokenizer is not None and tokenizer.eos_token_id is not None:
-                # 只获取最后一个 token 的值 (Scalar Sync，比全量 Sync 快得多)
                 try:
                     last_token_id = int(input_ids[0, -1].item())
                     if last_token_id == tokenizer.eos_token_id:
                         eos_detected = True
                 except:
-                    # 如果上面的方法失败，跳过 EOS 检查（在 fast 模式下）
                     pass
             
-            # 计算当前step的总时间和已统计时间
             step_end_time = time.time()
             step_total_time = step_end_time - step_start_time
             
-            # 计算本次step中已统计的时间
-            # 记录本次step开始时的累计时间值
             if idx == 0:
-                # 第一个step，记录初始累计时间
                 prev_measured_time = 0.0
             else:
-                # 使用上一次的累计时间
                 prev_measured_time = getattr(self, '_prev_step_measured_time', 0.0)
             
-            # 当前累计的已统计时间（不包括output_time，因为它是本次step新增的）
             current_measured_time = (
                 total_generate_candidates_time +
                 total_tree_decoding_time +
@@ -555,23 +523,15 @@ class MedusaModel(nn.Module):
                 total_medusa_heads_time
             )
             
-            # 本次step中已统计的时间 = 当前累计时间 - 上次累计时间 + 本次output时间
             step_measured_time = current_measured_time - prev_measured_time + output_time
-            
-            # 本次step中未统计的时间（边界检查、EOS检查等）
             step_overhead = step_total_time - step_measured_time
             total_step_overhead_time += step_overhead
-            
-            # 保存当前累计时间，供下次使用
             self._prev_step_measured_time = current_measured_time
             
-            # yield 结果
-            # 基础信息（所有模式都需要）
             yield_dict = {
-                "ids": curr_ids,          # 测试脚本需要统计 len(ids)，所有模式都需要
-                "accept_length": accept_length, # 用于统计加速效率
-                "step": idx,              # 当前步数 (idxs)
-                # 性能统计信息（累计值）
+                "ids": curr_ids,
+                "accept_length": accept_length,
+                "step": idx,
                 "prefill_time": prefill_time,
                 "total_medusa_heads_time": total_medusa_heads_time,
                 "total_tree_decoding_time": total_tree_decoding_time,
@@ -581,23 +541,15 @@ class MedusaModel(nn.Module):
                 "total_step_overhead_time": total_step_overhead_time,
             }
             
-            # 仅在非 fast 模式或 debug 模式下添加 text
             if not fast or self._debug_mode:
                 yield_dict["text"] = text
             
             yield yield_dict
             
-            # Check EOS
             if eos_detected or (tokenizer is not None and tokenizer.eos_token_id is not None and tokenizer.eos_token_id in curr_ids):
                 break
         
-        loop_end_time = time.time()
-        # 计算循环总时间（包括所有未统计的开销）
-        # 注意：这个时间会在外部（test_medusa_benchmark.py）与generation_time对比来计算剩余时间
-        
-        # 生成结束后清理状态，防止内存泄漏
         reset_medusa_mode(self)
-        # 清理 past_key_values 引用
         del past_key_values
         del past_key_values_data
         del current_length_data
