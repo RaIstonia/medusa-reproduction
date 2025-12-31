@@ -302,11 +302,42 @@ class MedusaModel(nn.Module):
                     if "1.weight" in k: # old output linear weight
                          new_key = f"medusa_blocks.{idx}.head_linear.weight"
                          new_state_dict[new_key] = v
-            self.load_parameters(new_state_dict, strict=False)
+            
+            # [修改] 移除 strict=False
+            self.load_parameters(new_state_dict)
         else:
-            # 正常加载，使用 strict=False 以容忍旧权重中可能包含的最后一个 Head 的多余参数
-            # 如果新权重已经去除了最后一个 Head 的 Gate 参数，那么完全匹配
-            self.medusa_blocks.load_parameters(state_dict, strict=False)
+            # [修改] 移除 strict=False
+            self.medusa_blocks.load_parameters(state_dict)
+
+    # def load_medusa_weights(self, weight_path):
+    #     """
+    #     专门加载 Medusa Head 的权重。增加对旧版权重和新版架构的兼容性检查。
+    #     """
+    #     print(f"Loading Medusa heads from {weight_path}")
+    #     state_dict = jt.load(weight_path)
+        
+    #     new_state_dict = {}
+    #     is_legacy = False
+        
+    #     for k, v in state_dict.items():
+    #         if "medusa_head" in k:
+    #             is_legacy = True
+    #             break
+        
+    #     if is_legacy:
+    #         print("WARNING: Detecting legacy Medusa weights (Independent Heads).")
+    #         for k, v in state_dict.items():
+    #             if "medusa_head" in k:
+    #                 parts = k.split('.')
+    #                 idx = int(parts[1])
+    #                 if "1.weight" in k: # old output linear weight
+    #                      new_key = f"medusa_blocks.{idx}.head_linear.weight"
+    #                      new_state_dict[new_key] = v
+    #         self.load_parameters(new_state_dict, strict=False)
+    #     else:
+    #         # 正常加载，使用 strict=False 以容忍旧权重中可能包含的最后一个 Head 的多余参数
+    #         # 如果新权重已经去除了最后一个 Head 的 Gate 参数，那么完全匹配
+    #         self.medusa_blocks.load_parameters(state_dict, strict=False)
 
     def medusa_generate(
         self,
