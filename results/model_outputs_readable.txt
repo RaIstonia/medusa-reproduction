@@ -1,0 +1,141 @@
+================================================================================
+Medusa 模型测试输出
+解码模式: 温度采样 (temperature=0.7)
+================================================================================
+
+
+================================================================================
+样本 1
+================================================================================
+
+输入提示:
+--------------------------------------------------------------------------------
+A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Compose an engaging travel blog post about a recent trip to Hawaii, highlighting cultural experiences and must-see attractions. ASSISTANT: 
+--------------------------------------------------------------------------------
+
+Medusa 模型输出:
+--------------------------------------------------------------------------------
+[错误] generate_candidates() got an unexpected keyword argument 'input_ids'
+--------------------------------------------------------------------------------
+
+Base Model 输出:
+--------------------------------------------------------------------------------
+ 
+: ., .</s>
+
+[统计] tokens: 6, 时间: 0.36s, 吞吐量: 16.88 tokens/s
+--------------------------------------------------------------------------------
+
+
+================================================================================
+样本 2
+================================================================================
+
+输入提示:
+--------------------------------------------------------------------------------
+A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Draft a professional email seeking your supervisor's feedback on the 'Quarterly Financial Report' you prepared. Ask specifically about the data analysis, presentation style, and the clarity of conclusions drawn. Keep the email short and to the point. ASSISTANT: 
+--------------------------------------------------------------------------------
+
+Medusa 模型输出:
+--------------------------------------------------------------------------------
+[错误] generate_candidates() got an unexpected keyword argument 'input_ids'
+--------------------------------------------------------------------------------
+
+Base Model 输出:
+--------------------------------------------------------------------------------
+ 1. What is the most important thing you have learned from your experiences with the card game Magic: The Gathering?
+I've learned a lot from my experiences with Magic: The Gathering, but the most important thing I've learned is the importance of understanding the rules and mechanics of the game. Whether you're playing a casual game with friends or competing in a tournament, having a solid understanding of the game's rules and mechanics is essential for success. This includes understanding card interactions, using strategy and tactics effectively, and making informed decisions based on the current state of the game. Additionally, being able to adapt to changing game conditions and making adjustments to your strategy in real-time is also key. Overall, understanding the rules and mechanics of Magic: The Gathering has been crucial to my success in the game, and I believe it can be applied to other areas of life as well.</s>
+
+[统计] tokens: 197, 时间: 5.73s, 吞吐量: 34.40 tokens/s
+--------------------------------------------------------------------------------
+
+
+================================================================================
+样本 3
+================================================================================
+
+输入提示:
+--------------------------------------------------------------------------------
+A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Imagine you are writing a blog post comparing two popular smartphone models. Develop an outline for the blog post, including key points and subheadings to effectively compare and contrast the features, performance, and user experience of the two models. Please answer in fewer than 200 words. ASSISTANT: 
+--------------------------------------------------------------------------------
+
+Medusa 模型输出:
+--------------------------------------------------------------------------------
+[错误] generate_candidates() got an unexpected keyword argument 'input_ids'
+--------------------------------------------------------------------------------
+
+Base Model 输出:
+--------------------------------------------------------------------------------
+ 
+
+This is an example of a long sentence that can be difficult to read and understand. To make your writing more clear and easy to understand, it's important to break up long sentences into shorter, simpler sentences. This can help your readers better follow your ideas and understand your message.</s>
+
+[统计] tokens: 61, 时间: 1.69s, 吞吐量: 36.00 tokens/s
+--------------------------------------------------------------------------------
+
+
+================================================================================
+样本 4
+================================================================================
+
+输入提示:
+--------------------------------------------------------------------------------
+A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Write a persuasive email to convince your introverted friend, who dislikes public speaking, to volunteer as a guest speaker at a local event. Use compelling arguments and address potential objections. Please be concise. ASSISTANT: 
+--------------------------------------------------------------------------------
+
+Medusa 模型输出:
+--------------------------------------------------------------------------------
+[错误] generate_candidates() got an unexpected keyword argument 'input_ids'
+--------------------------------------------------------------------------------
+
+Base Model 输出:
+--------------------------------------------------------------------------------
+ 
+:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:
+
+:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:
+
+:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,:</s>
+
+[统计] tokens: 251, 时间: 7.20s, 吞吐量: 34.88 tokens/s
+--------------------------------------------------------------------------------
+
+
+================================================================================
+样本 5
+================================================================================
+
+输入提示:
+--------------------------------------------------------------------------------
+A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: Describe a vivid and unique character, using strong imagery and creative language. Please answer in fewer than two paragraphs. ASSISTANT: 
+--------------------------------------------------------------------------------
+
+Medusa 模型输出:
+--------------------------------------------------------------------------------
+[错误] generate_candidates() got an unexpected keyword argument 'input_ids'
+--------------------------------------------------------------------------------
+
+Base Model 输出:
+--------------------------------------------------------------------------------
+: : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : : :
+
+[统计] tokens: 2048, 时间: 71.94s, 吞吐量: 28.47 tokens/s
+--------------------------------------------------------------------------------
+
+
+================================================================================
+总体统计
+================================================================================
+
+Medusa 模型:
+  总生成token数: 0
+  总耗时: 0.00s
+  平均吞吐量: 0.00 tokens/s
+  平均每个step接受的token数: 0.00
+
+Base Model:
+  总生成token数: 2563
+  总耗时: 86.91s
+  平均吞吐量: 29.49 tokens/s
+
+加速比: 0.00x

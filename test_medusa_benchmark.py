@@ -4,23 +4,34 @@
 Medusa 模型基准测试脚本
 测试 Medusa 和 Base Model 在相同数据上的性能对比
 
-使用ShareGPT格式数据测试：
+使用ShareGPT格式数据测试（温度采样）：
 python test_medusa_benchmark.py \
     --base_model_path ../Medusa/vicuna-7b-v1.3 \
     --jittor_base_weights ./vicuna-jittor-weights/vicuna-7b-v1.3_f16.pkl \
     --medusa_weights ../repro/medusa_checkpoints_1218/checkpoint-final/medusa_lm_head.jtr \
     --data_path ../Medusa/ShareGPT_Vicuna_unfiltered/ShareGPT_V4.3_unfiltered_cleaned_split.json \
     --num_samples 20 \
-    --max_new_token 4096
+    --max_new_token 4096 \
+    --temperature 0.7
 
-使用MT-bench数据集测试：
+使用贪婪解码测试：
+python test_medusa_benchmark.py \
+    --base_model_path ../Medusa/vicuna-7b-v1.3 \
+    --jittor_base_weights ./vicuna-jittor-weights/vicuna-7b-v1.3_f16.pkl \
+    --medusa_weights ../repro/medusa_checkpoints_1218/checkpoint-final/medusa_lm_head.jtr \
+    --data_path ../Medusa/ShareGPT_Vicuna_unfiltered/ShareGPT_V4.3_unfiltered_cleaned_split.json \
+    --num_samples 20 \
+    --max_new_token 4096 \
+    --greedy
+
+使用MT-bench数据集测试（贪婪解码）：
 python test_medusa_benchmark.py \
     --base_model_path ../Medusa/vicuna-7b-v1.3 \
     --jittor_base_weights ./vicuna-jittor-weights/vicuna-7b-v1.3_f16.pkl \
     --medusa_weights ../repro/medusa_checkpoints_1218/checkpoint-final/medusa_lm_head.jtr \
     --data_path ../Medusa/Medusa_zzl/llm_judge/data/mt_bench/question.jsonl \
     --data_format mt_bench \
-    --num_samples 10 \
+    --num_samples 5 \
     --max_new_token 2048
 """
 
@@ -260,8 +271,27 @@ def generate_with_medusa(model, tokenizer, formatted_prompt,
     remaining_time = max(0.0, remaining_time)  # 确保不为负
     perf_stats["remaining_time"] = remaining_time
     
+    # 解码生成的文本
+    generated_text = ""
+    if generated_ids:
+        # 将 generated_ids 转换为列表（如果是 Jittor Var 或其他类型）
+        if isinstance(generated_ids, jt.Var):
+            ids_list = generated_ids.numpy().tolist()
+        elif isinstance(generated_ids, list):
+            ids_list = generated_ids
+        elif hasattr(generated_ids, 'shape'):
+            # numpy 数组或其他有 shape 属性的数组
+            ids_list = generated_ids.flatten().tolist() if len(generated_ids.shape) > 1 else generated_ids.tolist()
+        else:
+            # 其他可迭代类型
+            ids_list = list(generated_ids)
+        
+        # 解码生成的token序列
+        generated_text = tokenizer.decode(ids_list, skip_special_tokens=False)
+    
     return {
         "generated_ids": generated_ids,
+        "generated_text": generated_text,
         "num_tokens": num_generated_tokens,
         "generation_time": generation_time,
         "throughput": throughput,
@@ -388,8 +418,11 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
             num_generated_tokens = len(generated_ids)
             throughput = num_generated_tokens / generation_time if generation_time > 0 else 0.0
             other_time = generation_time - (prefill_time + decoding_forward_time + sampling_time)
+            # 解码生成的文本
+            generated_text = tokenizer.decode(generated_ids, skip_special_tokens=False) if generated_ids else ""
             return {
                 "generated_ids": generated_ids,
+                "generated_text": generated_text,
                 "num_tokens": num_generated_tokens,
                 "generation_time": generation_time,
                 "throughput": throughput,
@@ -487,8 +520,16 @@ def generate_with_base_model(base_model, tokenizer, formatted_prompt,
     other_time = generation_time - (prefill_time + decoding_forward_time + sampling_time)
     other_time = max(0.0, other_time)  # 确保不为负
     
+    # 解码生成的文本
+    generated_text = ""
+    if generated_ids:
+        # 将Jittor数组转换为numpy数组，然后解码
+        generated_ids_np = [int(id) for id in generated_ids]
+        generated_text = tokenizer.decode(generated_ids_np, skip_special_tokens=False)
+    
     return {
         "generated_ids": generated_ids,
+        "generated_text": generated_text,
         "num_tokens": num_generated_tokens,
         "generation_time": generation_time,
         "throughput": throughput,
@@ -832,7 +873,9 @@ def main():
     
     # 生成参数
     parser.add_argument("--temperature", type=float, default=0.7,
-                       help="温度参数")
+                       help="温度参数（当使用--greedy时会被自动设置为0）")
+    parser.add_argument("--greedy", action="store_true",
+                       help="使用贪婪解码（temperature=0，确定性生成）")
     parser.add_argument("--max_new_token", type=int, default=512,
                        help="最大生成token数")
     parser.add_argument("--posterior_threshold", type=float, default=0.01,
@@ -848,6 +891,13 @@ def main():
                        help="数据格式：auto（自动检测）、sharegpt或mt_bench")
     
     args = parser.parse_args()
+    
+    # 如果使用贪婪解码，自动设置temperature为0
+    if args.greedy:
+        args.temperature = 0.0
+        print("=" * 60)
+        print("使用贪婪解码模式 (temperature=0.0)")
+        print("=" * 60)
     
     # 创建结果目录
     results_dir = Path("results")
@@ -888,6 +938,7 @@ def main():
             "medusa_num_heads": args.medusa_num_heads,
             "max_seq_length": args.max_seq_length,
             "temperature": args.temperature,
+            "greedy_decoding": args.greedy,
             "max_new_token": args.max_new_token,
             "posterior_threshold": args.posterior_threshold,
             "posterior_alpha": args.posterior_alpha,
@@ -899,7 +950,11 @@ def main():
     }
     
     print("=" * 60)
-    print("开始测试 Medusa 模型...")
+    print(f"开始测试 Medusa 模型...")
+    if args.greedy:
+        print("模式: 贪婪解码 (temperature=0.0)")
+    else:
+        print(f"模式: 温度采样 (temperature={args.temperature})")
     print("=" * 60)
     
     # 测试 Medusa
@@ -925,6 +980,7 @@ def main():
             results["medusa_results"].append({
                 "sample_id": idx,
                 "input_prompt": formatted_prompt,
+                "generated_text": result.get("generated_text", ""),
                 "num_tokens": result["num_tokens"],
                 "generation_time": result["generation_time"],
                 "throughput": result["throughput"],
@@ -994,7 +1050,11 @@ def main():
             })
     
     print("\n" + "=" * 60)
-    print("开始测试 Base Model...")
+    print(f"开始测试 Base Model...")
+    if args.greedy:
+        print("模式: 贪婪解码 (temperature=0.0)")
+    else:
+        print(f"模式: 温度采样 (temperature={args.temperature})")
     print("=" * 60)
     
     # 测试 Base Model
@@ -1016,6 +1076,7 @@ def main():
             results["base_model_results"].append({
                 "sample_id": idx,
                 "input_prompt": formatted_prompt,
+                "generated_text": result.get("generated_text", ""),
                 "num_tokens": result["num_tokens"],
                 "generation_time": result["generation_time"],
                 "throughput": result["throughput"],
@@ -1078,14 +1139,149 @@ def main():
         "speedup": medusa_avg_throughput / base_avg_throughput if base_avg_throughput > 0 else 0.0
     }
     
-    # 保存结果
+    # 保存结果（包含统计信息和生成的文本）
     results_file = results_dir / "benchmark_results.json"
     with open(results_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     
+    # 保存模型输出文本到单独的文件（JSONL格式，方便逐行查看）
+    outputs_file = results_dir / "model_outputs.jsonl"
+    with open(outputs_file, 'w', encoding='utf-8') as f:
+        # 确保medusa和base_model的结果数量一致
+        max_samples = max(len(results["medusa_results"]), len(results["base_model_results"]))
+        
+        for i in range(max_samples):
+            output_item = {
+                "sample_id": i,
+                "input_prompt": "",
+                "medusa_output": "",
+                "base_model_output": "",
+                "medusa_stats": {},
+                "base_model_stats": {}
+            }
+            
+            # 获取Medusa结果
+            if i < len(results["medusa_results"]):
+                medusa_result = results["medusa_results"][i]
+                if "error" not in medusa_result:
+                    output_item["input_prompt"] = medusa_result.get("input_prompt", "")
+                    output_item["medusa_output"] = medusa_result.get("generated_text", "")
+                    output_item["medusa_stats"] = {
+                        "num_tokens": medusa_result.get("num_tokens", 0),
+                        "generation_time": medusa_result.get("generation_time", 0.0),
+                        "throughput": medusa_result.get("throughput", 0.0),
+                        "avg_accept_per_step": medusa_result.get("avg_accept_per_step", 0.0)
+                    }
+                else:
+                    output_item["medusa_output"] = f"[错误] {medusa_result.get('error', 'Unknown error')}"
+                    output_item["input_prompt"] = medusa_result.get("input_prompt", "")
+            
+            # 获取Base Model结果
+            if i < len(results["base_model_results"]):
+                base_result = results["base_model_results"][i]
+                if "error" not in base_result:
+                    if not output_item["input_prompt"]:
+                        output_item["input_prompt"] = base_result.get("input_prompt", "")
+                    output_item["base_model_output"] = base_result.get("generated_text", "")
+                    output_item["base_model_stats"] = {
+                        "num_tokens": base_result.get("num_tokens", 0),
+                        "generation_time": base_result.get("generation_time", 0.0),
+                        "throughput": base_result.get("throughput", 0.0)
+                    }
+                else:
+                    output_item["base_model_output"] = f"[错误] {base_result.get('error', 'Unknown error')}"
+                    if not output_item["input_prompt"]:
+                        output_item["input_prompt"] = base_result.get("input_prompt", "")
+            
+            # 写入JSONL文件
+            f.write(json.dumps(output_item, ensure_ascii=False) + "\n")
+    
+    # 保存可读性更好的文本格式输出
+    readable_outputs_file = results_dir / "model_outputs_readable.txt"
+    with open(readable_outputs_file, 'w', encoding='utf-8') as f:
+        f.write("=" * 80 + "\n")
+        f.write("Medusa 模型测试输出\n")
+        if args.greedy:
+            f.write("解码模式: 贪婪解码 (temperature=0.0)\n")
+        else:
+            f.write(f"解码模式: 温度采样 (temperature={args.temperature})\n")
+        f.write("=" * 80 + "\n\n")
+        
+        max_samples = max(len(results["medusa_results"]), len(results["base_model_results"]))
+        
+        for i in range(max_samples):
+            f.write(f"\n{'='*80}\n")
+            f.write(f"样本 {i+1}\n")
+            f.write(f"{'='*80}\n\n")
+            
+            # 输入提示
+            input_prompt = ""
+            if i < len(results["medusa_results"]):
+                input_prompt = results["medusa_results"][i].get("input_prompt", "")
+            elif i < len(results["base_model_results"]):
+                input_prompt = results["base_model_results"][i].get("input_prompt", "")
+            
+            if input_prompt:
+                f.write("输入提示:\n")
+                f.write("-" * 80 + "\n")
+                f.write(input_prompt + "\n")
+                f.write("-" * 80 + "\n\n")
+            
+            # Medusa输出
+            f.write("Medusa 模型输出:\n")
+            f.write("-" * 80 + "\n")
+            if i < len(results["medusa_results"]):
+                medusa_result = results["medusa_results"][i]
+                if "error" not in medusa_result:
+                    f.write(medusa_result.get("generated_text", "") + "\n")
+                    f.write(f"\n[统计] tokens: {medusa_result.get('num_tokens', 0)}, "
+                           f"时间: {medusa_result.get('generation_time', 0.0):.2f}s, "
+                           f"吞吐量: {medusa_result.get('throughput', 0.0):.2f} tokens/s, "
+                           f"平均接受长度: {medusa_result.get('avg_accept_per_step', 0.0):.2f}\n")
+                else:
+                    f.write(f"[错误] {medusa_result.get('error', 'Unknown error')}\n")
+            else:
+                f.write("[无数据]\n")
+            f.write("-" * 80 + "\n\n")
+            
+            # Base Model输出
+            f.write("Base Model 输出:\n")
+            f.write("-" * 80 + "\n")
+            if i < len(results["base_model_results"]):
+                base_result = results["base_model_results"][i]
+                if "error" not in base_result:
+                    f.write(base_result.get("generated_text", "") + "\n")
+                    f.write(f"\n[统计] tokens: {base_result.get('num_tokens', 0)}, "
+                           f"时间: {base_result.get('generation_time', 0.0):.2f}s, "
+                           f"吞吐量: {base_result.get('throughput', 0.0):.2f} tokens/s\n")
+                else:
+                    f.write(f"[错误] {base_result.get('error', 'Unknown error')}\n")
+            else:
+                f.write("[无数据]\n")
+            f.write("-" * 80 + "\n\n")
+        
+        # 添加总体统计
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("总体统计\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(f"Medusa 模型:\n")
+        f.write(f"  总生成token数: {medusa_total_tokens}\n")
+        f.write(f"  总耗时: {medusa_total_time:.2f}s\n")
+        f.write(f"  平均吞吐量: {medusa_avg_throughput:.2f} tokens/s\n")
+        f.write(f"  平均每个step接受的token数: {medusa_avg_accept_per_step:.2f}\n\n")
+        f.write(f"Base Model:\n")
+        f.write(f"  总生成token数: {base_total_tokens}\n")
+        f.write(f"  总耗时: {base_total_time:.2f}s\n")
+        f.write(f"  平均吞吐量: {base_avg_throughput:.2f} tokens/s\n\n")
+        f.write(f"加速比: {results['summary']['speedup']:.2f}x\n")
+    
     print("\n" + "=" * 60)
     print("测试完成！")
     print("=" * 60)
+    if args.greedy:
+        print("解码模式: 贪婪解码 (temperature=0.0)")
+    else:
+        print(f"解码模式: 温度采样 (temperature={args.temperature})")
     print(f"\nMedusa 模型统计:")
     print(f"  总生成token数: {medusa_total_tokens}")
     print(f"  总耗时: {medusa_total_time:.2f}s")
@@ -1096,7 +1292,10 @@ def main():
     print(f"  总耗时: {base_total_time:.2f}s")
     print(f"  平均吞吐量: {base_avg_throughput:.2f} tokens/s")
     print(f"\n加速比: {results['summary']['speedup']:.2f}x")
-    print(f"\n结果已保存到: {results_file}")
+    print(f"\n结果已保存到:")
+    print(f"  - 统计结果: {results_file}")
+    print(f"  - 模型输出(JSONL): {outputs_file}")
+    print(f"  - 模型输出(可读文本): {readable_outputs_file}")
 
 
 if __name__ == "__main__":
