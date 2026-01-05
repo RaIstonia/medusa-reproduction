@@ -58,7 +58,7 @@ class MedusaConfig(PretrainedConfig):
 # [修改类] GatedMedusaBlock
 class GatedMedusaBlock(nn.Module):
     """
-    包含预测头和状态更新机制的门控单元 (RNN-style + Hydra)
+    包含预测头和状态更新机制的门控单元
     Logic:
         Logits = Head(S_k)
         if not last_head:
@@ -82,7 +82,7 @@ class GatedMedusaBlock(nn.Module):
         self.head_linear = nn.Linear(hidden_size, vocab_size, bias=False)
         
         if not self.is_last_head:
-            # 2. Embedding 投影层 (Hydra 核心：将 Token Embedding 映射到 Hidden 空间)
+            # 2. Embedding 投影层
             # [修改] 只有当不是最后一个 Head 且不是第一个 Head 时，才需要 embed_proj
             # 因为 Head 0 不需要注入 Embedding，它没有前驱 Head
             if not self.is_first_head:
@@ -144,7 +144,7 @@ class GatedMedusaBlock(nn.Module):
             # 如果是最后一个 Head，不需要计算下一个状态，直接返回 None
             return logits, None
         
-        # 2. Hydra 核心：注入 Token 信息
+        # 2. Reference by Eagle and standard lstm：注入 Token 信息
         if prev_token_embedding is not None:
             # [修改] 确保 Head 0 不会错误地走到这里（虽然逻辑上不会）
             # 确保存在 embed_proj
@@ -317,7 +317,7 @@ class MedusaModel(nn.Module):
             current_state.sync()
 
             medusa_logits = []
-            # [Hydra] 串行执行 Medusa Blocks，注入 Token Embedding
+            # 串行执行 Medusa Blocks，注入 Token Embedding
             for i, block in enumerate(self.medusa_blocks):
                 # 准备 prev_token_embedding
                 prev_embed = None
@@ -382,7 +382,7 @@ class MedusaModel(nn.Module):
                 current_state = current_state.float32()
             
             medusa_logits = []
-            # [Hydra] 串行执行 Medusa Blocks，注入 Token Embedding
+            # 串行执行 Medusa Blocks，注入 Token Embedding
             for i, block in enumerate(self.medusa_blocks):
                 # 准备 prev_token_embedding
                 prev_embed = None
@@ -640,13 +640,13 @@ class MedusaModel(nn.Module):
             jt.sync_all()
             total_update_inputs_time += time.time() - ui_start
             
-            # === [Hydra + RNN] 串行执行 Gated Medusa Blocks ===
+            # === 串行执行 Gated Medusa Blocks ===
             mh_start = time.time()
             
             # 初始状态 S_0 [1, 1, Hidden]
             current_state = last_hidden_state.stop_grad().float32()
             
-            # [Hydra] 获取 Base Model 刚刚接受的 Token 的 Embedding
+            # 获取 Base Model 刚刚接受的 Token 的 Embedding
             # new_token 是 update_inference_inputs 返回的最新接受的 token ID
             # 注意：这个 embedding 用于 Head 1，而不是 Head 0
             if self.embed_tokens is not None and new_token is not None:
@@ -677,7 +677,7 @@ class MedusaModel(nn.Module):
                 medusa_logits_list.append(logits_out)
                 current_state = next_state
                 
-                # [Hydra] 更新 current_embed 用于下一个 Head（Greedy Decode）
+                # 更新 current_embed 用于下一个 Head（Greedy Decode）
                 # 注意：Head 0 执行后，需要更新 current_embed 供 Head 1 使用
                 if not block.is_last_head and self.embed_tokens is not None:
                     # 贪婪解码：取最后一个位置的 logits 并 argmax

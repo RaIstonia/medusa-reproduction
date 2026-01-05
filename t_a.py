@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Typical Acceptance策略的文本生成脚本
 使用backbone模型和medusa_checkpoints_1218目录中训练好的medusa heads进行生成
